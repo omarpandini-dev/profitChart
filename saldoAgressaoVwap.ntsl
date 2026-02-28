@@ -1,0 +1,61 @@
+input
+  HoraInicio(900);
+  HoraFim(1700);
+  TipoVolumeAgressao(0);
+  GainTicks(20);
+  LossTicks(10);
+
+var
+  vwapAtual      : Float;
+  saldoAggAtual  : Float;
+  saldoAggAnterior : Float;
+  alvoEmPontos   : Float;
+  stopEmPontos   : Float;
+  precoAlvo      : Float;
+  precoStop      : Float;
+  dentroHorario  : Boolean;
+  sinalVenda     : Boolean;
+  sinalCompra    : Boolean;
+
+begin
+  vwapAtual := VWAP(1);
+  saldoAggAtual := AccAgressSaldo(TipoVolumeAgressao);
+  alvoEmPontos := GainTicks * MinPriceIncrement;
+  stopEmPontos := LossTicks * MinPriceIncrement;
+  dentroHorario := (Time >= HoraInicio) and (Time <= HoraFim);
+
+  sinalVenda := (Open > vwapAtual) and (Close < vwapAtual) and
+                (saldoAggAnterior > 0) and (saldoAggAtual < 0);
+
+  sinalCompra := (Open < vwapAtual) and (Close > vwapAtual) and
+                 (saldoAggAnterior < 0) and (saldoAggAtual > 0);
+
+  if dentroHorario and (HasPosition = false) then
+  begin
+    if sinalVenda then
+      SellShortAtMarket;
+
+    if sinalCompra then
+      BuyAtMarket;
+  end;
+
+  if IsBought then
+  begin
+    precoAlvo := BuyPrice + alvoEmPontos;
+    precoStop := BuyPrice - stopEmPontos;
+
+    SellToCoverLimit(precoAlvo);
+    SellToCoverStop(precoStop, precoStop);
+  end;
+
+  if IsSold then
+  begin
+    precoAlvo := SellPrice - alvoEmPontos;
+    precoStop := SellPrice + stopEmPontos;
+
+    BuyToCoverLimit(precoAlvo);
+    BuyToCoverStop(precoStop, precoStop);
+  end;
+
+  saldoAggAnterior := saldoAggAtual;
+end;
