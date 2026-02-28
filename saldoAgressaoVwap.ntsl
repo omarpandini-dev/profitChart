@@ -4,18 +4,25 @@ input
   TipoVolumeAgressao(0);
   GainTicks(20);
   LossTicks(10);
+  MaxOperacoesDia(3);
+  MinPicoAgressaoInversao(5000);
 
 var
   vwapAtual      : Float;
   saldoAggAtual  : Float;
   saldoAggAnterior : Float;
+  picoAggPositivo : Float;
+  picoAggNegativo : Float;
   alvoEmPontos   : Float;
   stopEmPontos   : Float;
   precoAlvo      : Float;
   precoStop      : Float;
   dentroHorario  : Boolean;
+  podeOperarDia  : Boolean;
   sinalVenda     : Boolean;
   sinalCompra    : Boolean;
+  operacoesNoDia : Integer;
+  dataControle   : Integer;
 
 begin
   vwapAtual := VWAP(1);
@@ -23,20 +30,45 @@ begin
   alvoEmPontos := GainTicks * MinPriceIncrement;
   stopEmPontos := LossTicks * MinPriceIncrement;
   dentroHorario := (Time >= HoraInicio) and (Time <= HoraFim);
+  
+  if Date <> dataControle then
+  begin
+    operacoesNoDia := 0;
+    picoAggPositivo := 0;
+    picoAggNegativo := 0;
+    saldoAggAnterior := saldoAggAtual;
+    dataControle := Date;
+  end;
+
+  if saldoAggAtual > picoAggPositivo then
+    picoAggPositivo := saldoAggAtual;
+
+  if saldoAggAtual < picoAggNegativo then
+    picoAggNegativo := saldoAggAtual;
+
+  podeOperarDia := (MaxOperacoesDia <= 0) or (operacoesNoDia < MaxOperacoesDia);
 
   sinalVenda := (Open > vwapAtual) and (Close < vwapAtual) and
-                (saldoAggAnterior > 0) and (saldoAggAtual < 0);
+                (saldoAggAnterior > 0) and (saldoAggAtual < 0) and
+                (picoAggPositivo >= MinPicoAgressaoInversao);
 
   sinalCompra := (Open < vwapAtual) and (Close > vwapAtual) and
-                 (saldoAggAnterior < 0) and (saldoAggAtual > 0);
+                 (saldoAggAnterior < 0) and (saldoAggAtual > 0) and
+                 (picoAggNegativo <= -MinPicoAgressaoInversao);
 
-  if dentroHorario and (HasPosition = false) then
+  if dentroHorario and (HasPosition = false) and podeOperarDia then
   begin
     if sinalVenda then
+    begin
       SellShortAtMarket;
+      operacoesNoDia := operacoesNoDia + 1;
+    end;
 
     if sinalCompra then
+    begin
       BuyAtMarket;
+      operacoesNoDia := operacoesNoDia + 1;
+    end;
   end;
 
   if IsBought then
@@ -55,6 +87,18 @@ begin
 
     BuyToCoverLimit(precoAlvo);
     BuyToCoverStop(precoStop, precoStop);
+  end;
+
+  if (saldoAggAnterior > 0) and (saldoAggAtual < 0) then
+  begin
+    picoAggPositivo := 0;
+    picoAggNegativo := saldoAggAtual;
+  end;
+
+  if (saldoAggAnterior < 0) and (saldoAggAtual > 0) then
+  begin
+    picoAggNegativo := 0;
+    picoAggPositivo := saldoAggAtual;
   end;
 
   saldoAggAnterior := saldoAggAtual;

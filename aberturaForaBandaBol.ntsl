@@ -1,0 +1,61 @@
+input
+  GainTicks(20);
+  LossTicks(10);
+  DistanciaMinimaAberturaTicks(5);
+
+var
+  bandaSuperior : Float;
+  bandaInferior : Float;
+  alvoEmPontos  : Float;
+  stopEmPontos  : Float;
+  distMinPontos : Float;
+  sinalCompra   : Boolean;
+  sinalVenda    : Boolean;
+  precoAlvo     : Float;
+  precoStop     : Float;
+
+begin
+  bandaSuperior := BollingerBands(2.00, 20, 0)|0|;
+  bandaInferior := BollingerBands(2.00, 20, 0)|1|;
+
+  alvoEmPontos := GainTicks * MinPriceIncrement;
+  stopEmPontos := LossTicks * MinPriceIncrement;
+  distMinPontos := DistanciaMinimaAberturaTicks * MinPriceIncrement;
+
+  sinalCompra := (Date[1] <> Date[2]) and
+                 (Open[1] < bandaInferior[1]) and
+                 (Close[1] < bandaInferior[1]) and
+                 ((bandaInferior[1] - Open[1]) >= distMinPontos);
+
+  sinalVenda := (Date[1] <> Date[2]) and
+                (Open[1] > bandaSuperior[1]) and
+                (Close[1] > bandaSuperior[1]) and
+                ((Open[1] - bandaSuperior[1]) >= distMinPontos);
+
+  if (HasPosition = false) then
+  begin
+    if sinalCompra then
+      BuyAtMarket;
+
+    if sinalVenda then
+      SellShortAtMarket;
+  end;
+
+  if IsBought then
+  begin
+    precoAlvo := BuyPrice + alvoEmPontos;
+    precoStop := BuyPrice - stopEmPontos;
+
+    SellToCoverLimit(precoAlvo);
+    SellToCoverStop(precoStop, precoStop);
+  end;
+
+  if IsSold then
+  begin
+    precoAlvo := SellPrice - alvoEmPontos;
+    precoStop := SellPrice + stopEmPontos;
+
+    BuyToCoverLimit(precoAlvo);
+    BuyToCoverStop(precoStop, precoStop);
+  end;
+end;
