@@ -1,0 +1,87 @@
+input
+  DistanciaAberturaTicks(10);
+  StopGainTicks(20);
+  StopLossTicks(20);
+  HabilitaStopGain(true);
+  HabilitaStopLoss(true);
+
+var
+  ajusteAnterior       : Float;
+  aberturaDia          : Float;
+  distanciaEmPontos    : Float;
+  alvoEmPontos         : Float;
+  stopEmPontos         : Float;
+  precoAlvo            : Float;
+  precoStop            : Float;
+  entradaFeitaNoDia    : Boolean;
+  sinalCompraAbertura  : Boolean;
+  sinalVendaAbertura   : Boolean;
+  tocouAjuste          : Boolean;
+
+begin
+  ajusteAnterior := PriorCote(4);
+  distanciaEmPontos := DistanciaAberturaTicks * MinPriceIncrement;
+  alvoEmPontos := StopGainTicks * MinPriceIncrement;
+  stopEmPontos := StopLossTicks * MinPriceIncrement;
+
+  if Date <> Date[1] then
+  begin
+    aberturaDia := Open;
+    entradaFeitaNoDia := false;
+  end;
+
+  sinalCompraAbertura := (aberturaDia <= (ajusteAnterior - distanciaEmPontos));
+  sinalVendaAbertura := (aberturaDia >= (ajusteAnterior + distanciaEmPontos));
+
+  if (HasPosition = false) and (entradaFeitaNoDia = false) then
+  begin
+    if sinalCompraAbertura then
+    begin
+      BuyAtMarket;
+      entradaFeitaNoDia := true;
+    end
+    else if sinalVendaAbertura then
+    begin
+      SellShortAtMarket;
+      entradaFeitaNoDia := true;
+    end;
+  end;
+
+  if IsBought then
+  begin
+    if HabilitaStopGain and (StopGainTicks > 0) then
+    begin
+      precoAlvo := BuyPrice + alvoEmPontos;
+      SellToCoverLimit(precoAlvo);
+    end;
+
+    if HabilitaStopLoss and (StopLossTicks > 0) then
+    begin
+      precoStop := BuyPrice - stopEmPontos;
+      SellToCoverStop(precoStop, precoStop);
+    end;
+
+    tocouAjuste := High >= ajusteAnterior;
+    if tocouAjuste then
+      SellToCoverAtMarket;
+  end;
+
+  if IsSold then
+  begin
+    if HabilitaStopGain and (StopGainTicks > 0) then
+    begin
+      precoAlvo := SellPrice - alvoEmPontos;
+      BuyToCoverLimit(precoAlvo);
+    end;
+
+    if HabilitaStopLoss and (StopLossTicks > 0) then
+    begin
+      precoStop := SellPrice + stopEmPontos;
+      BuyToCoverStop(precoStop, precoStop);
+    end;
+
+    tocouAjuste := Low <= ajusteAnterior;
+    if tocouAjuste then
+      BuyToCoverAtMarket;
+  end;
+end;
