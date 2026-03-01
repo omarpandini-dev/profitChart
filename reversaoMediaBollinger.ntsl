@@ -1,0 +1,84 @@
+input
+  HoraInicio(900);
+  HoraFim(1700);
+  PeriodoBollinger(20);
+  mediaStop(20);
+  DesvioBollinger(2.00);
+  StopTicks(20);
+  MaxOperacoesDia(3);
+  LarguraMinimaBandaTicks(10);
+
+var
+  bandaSuperior : Float;
+  bandaInferior : Float;
+  bandaMedia    : Float;
+  larguraBanda  : Float;
+  stopEmPontos  : Float;
+  larguraMinimaEmPontos : Float;
+  precoStop     : Float;
+  dentroHorario : Boolean;
+  podeOperarDia : Boolean;
+  sinalCompra   : Boolean;
+  sinalVenda    : Boolean;
+  operacoesNoDia : Integer;
+  dataControle   : Integer;
+  estavaPosicionado : Boolean;
+
+begin
+  bandaSuperior := BollingerBands(DesvioBollinger, PeriodoBollinger, 0)|0|;
+  bandaInferior := BollingerBands(DesvioBollinger, PeriodoBollinger, 0)|1|;
+  bandaMedia := Media(mediaStop, Close);
+
+  stopEmPontos := StopTicks * MinPriceIncrement;
+  larguraMinimaEmPontos := LarguraMinimaBandaTicks * MinPriceIncrement;
+  larguraBanda := bandaSuperior - bandaInferior;
+  dentroHorario := (Time >= HoraInicio) and (Time <= HoraFim);
+
+  if Date <> dataControle then
+  begin
+    operacoesNoDia := 0;
+    dataControle := Date;
+    estavaPosicionado := HasPosition;
+  end;
+
+  if (estavaPosicionado = false) and HasPosition then
+    operacoesNoDia := operacoesNoDia + 1;
+
+  estavaPosicionado := HasPosition;
+  podeOperarDia := (MaxOperacoesDia <= 0) or (operacoesNoDia < MaxOperacoesDia);
+
+  sinalCompra := Close < bandaInferior;
+  sinalVenda := Close > bandaSuperior;
+
+  if Time >= HoraFim then
+  begin
+    if IsBought then
+      SellToCoverAtMarket;
+
+    if IsSold then
+      BuyToCoverAtMarket;
+  end
+  else if dentroHorario and (HasPosition = false) and podeOperarDia and
+          (larguraBanda >= larguraMinimaEmPontos) then
+  begin
+    if sinalCompra then
+      BuyAtMarket;
+
+    if sinalVenda then
+      SellShortAtMarket;
+  end;
+
+  if (Time < HoraFim) and IsBought then
+  begin
+    precoStop := BuyPrice - stopEmPontos;
+    SellToCoverLimit(bandaMedia);
+    SellToCoverStop(precoStop, precoStop);
+  end;
+
+  if (Time < HoraFim) and IsSold then
+  begin
+    precoStop := SellPrice + stopEmPontos;
+    BuyToCoverLimit(bandaMedia);
+    BuyToCoverStop(precoStop, precoStop);
+  end;
+end;
