@@ -1,0 +1,148 @@
+input
+  HoraInicio(900);
+  HoraFim(1700);
+  PeriodoBollinger(20);
+  mediaStop(20);
+  DesvioBollinger(2.00);
+  StopTicks(20);
+  MaxOperacoesDia(3);
+  LarguraMinimaBandaTicks(10);
+  DistanciaTicksAumentoContratos(20);
+  NumeroMaximoContratos(3);
+  ValorFinanceiroPorTick(1.00);
+  StopLossFinanceiro(100.00);
+  LimiteGanhoFinanceiro(100.00);
+
+var
+  bandaSuperior : Float;
+  bandaInferior : Float;
+  bandaMedia    : Float;
+  larguraBanda  : Float;
+  stopEmPontos  : Float;
+  larguraMinimaEmPontos : Float;
+  precoStop     : Float;
+  dentroHorario : Boolean;
+  podeOperarDia : Boolean;
+  sinalCompra   : Boolean;
+  sinalVenda    : Boolean;
+  operacoesNoDia : Integer;
+  dataControle   : Integer;
+  estavaPosicionado : Boolean;
+  distanciaAumentoEmPontos : Float;
+  precoUltimaEntrada : Float;
+  contratosNaPosicao : Integer;
+  resultadoAbertoFinanceiro : Float;
+  forcarZeragem : Boolean;
+
+begin
+  bandaSuperior := BollingerBands(DesvioBollinger, PeriodoBollinger, 0)|0|;
+  bandaInferior := BollingerBands(DesvioBollinger, PeriodoBollinger, 0)|1|;
+  bandaMedia := Media(mediaStop, Close);
+
+  stopEmPontos := StopTicks * MinPriceIncrement;
+  larguraMinimaEmPontos := LarguraMinimaBandaTicks * MinPriceIncrement;
+  distanciaAumentoEmPontos := DistanciaTicksAumentoContratos * MinPriceIncrement;
+  larguraBanda := bandaSuperior - bandaInferior;
+  dentroHorario := (Time >= HoraInicio) and (Time <= HoraFim);
+
+  if Date <> dataControle then
+  begin
+    operacoesNoDia := 0;
+    dataControle := Date;
+    estavaPosicionado := HasPosition;
+  end;
+
+  if (estavaPosicionado = false) and HasPosition then
+  begin
+    operacoesNoDia := operacoesNoDia + 1;
+    contratosNaPosicao := 1;
+    precoUltimaEntrada := Close;
+  end;
+
+  if HasPosition = false then
+    contratosNaPosicao := 0;
+
+  estavaPosicionado := HasPosition;
+  podeOperarDia := (MaxOperacoesDia <= 0) or (operacoesNoDia < MaxOperacoesDia);
+
+  sinalCompra := Close < bandaInferior;
+  sinalVenda := Close > bandaSuperior;
+
+  resultadoAbertoFinanceiro := 0;
+  if IsBought and (contratosNaPosicao > 0) then
+    resultadoAbertoFinanceiro := ((Close - BuyPrice) / MinPriceIncrement) * ValorFinanceiroPorTick * contratosNaPosicao;
+
+  if IsSold and (contratosNaPosicao > 0) then
+    resultadoAbertoFinanceiro := ((SellPrice - Close) / MinPriceIncrement) * ValorFinanceiroPorTick * contratosNaPosicao;
+
+  forcarZeragem := false;
+  if Time >= HoraFim then
+    forcarZeragem := true;
+
+  if HasPosition and (StopLossFinanceiro > 0) and (resultadoAbertoFinanceiro <= -StopLossFinanceiro) then
+    forcarZeragem := true;
+
+  if HasPosition and (LimiteGanhoFinanceiro > 0) and (resultadoAbertoFinanceiro >= LimiteGanhoFinanceiro) then
+    forcarZeragem := true;
+
+  if forcarZeragem then
+  begin
+    if IsBought then
+      SellToCoverAtMarket;
+
+    if IsSold then
+      BuyToCoverAtMarket;
+  end
+  else if dentroHorario and (HasPosition = false) and podeOperarDia and
+          (NumeroMaximoContratos > 0) and
+          (larguraBanda >= larguraMinimaEmPontos) then
+  begin
+    if sinalCompra then
+    begin
+      BuyAtMarket(1);
+      contratosNaPosicao := 1;
+      precoUltimaEntrada := Close;
+    end;
+
+    if sinalVenda then
+    begin
+      SellShortAtMarket(1);
+      contratosNaPosicao := 1;
+      precoUltimaEntrada := Close;
+    end;
+  end;
+
+  if (forcarZeragem = false) and dentroHorario and IsBought and
+     (contratosNaPosicao < NumeroMaximoContratos) and
+     (distanciaAumentoEmPontos > 0) and
+     (Close <= (precoUltimaEntrada - distanciaAumentoEmPontos)) then
+  begin
+    BuyAtMarket(1);
+    contratosNaPosicao := contratosNaPosicao + 1;
+    precoUltimaEntrada := Close;
+  end;
+
+  if (forcarZeragem = false) and dentroHorario and IsSold and
+     (contratosNaPosicao < NumeroMaximoContratos) and
+     (distanciaAumentoEmPontos > 0) and
+     (Close >= (precoUltimaEntrada + distanciaAumentoEmPontos)) then
+  begin
+    SellShortAtMarket(1);
+    contratosNaPosicao := contratosNaPosicao + 1;
+    precoUltimaEntrada := Close;
+  end;
+
+  if (Time < HoraFim) and IsBought and (forcarZeragem = false) then
+  begin
+    precoStop := BuyPrice - stopEmPontos;
+    SellToCoverLimit(bandaMedia);
+    SellToCoverStop(precoStop, precoStop);
+  end;
+
+  if (Time < HoraFim) and IsSold and (forcarZeragem = false) then
+  begin
+    precoStop := SellPrice + stopEmPontos;
+    BuyToCoverLimit(bandaMedia);
+    BuyToCoverStop(precoStop, precoStop);
+  end;
+end;
