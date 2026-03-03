@@ -4,6 +4,7 @@ input
   StopLossTicks(20);
   HabilitaStopGain(true);
   HabilitaStopLoss(true);
+  hr_fim(1700);
 
 var
   ajusteAnterior       : Float;
@@ -13,7 +14,8 @@ var
   stopEmPontos         : Float;
   precoAlvo            : Float;
   precoStop            : Float;
-  entradaFeitaNoDia    : Boolean;
+  operacoesNoDia       : Integer;
+  ordensSaidaEnviadas  : Boolean;
   sinalCompraAbertura  : Boolean;
   sinalVendaAbertura   : Boolean;
   tocouAjuste          : Boolean;
@@ -27,61 +29,86 @@ begin
   if Date <> Date[1] then
   begin
     aberturaDia := Open;
-    entradaFeitaNoDia := false;
+    operacoesNoDia := 0;
+    ordensSaidaEnviadas := false;
   end;
+
+  if HasPosition = false then
+    ordensSaidaEnviadas := false;
 
   sinalCompraAbertura := (aberturaDia <= (ajusteAnterior - distanciaEmPontos));
   sinalVendaAbertura := (aberturaDia >= (ajusteAnterior + distanciaEmPontos));
 
-  if (HasPosition = false) and (entradaFeitaNoDia = false) then
+  if Time > hr_fim then
   begin
-    if sinalCompraAbertura then
-    begin
-      BuyAtMarket;
-      entradaFeitaNoDia := true;
-    end
-    else if sinalVendaAbertura then
-    begin
-      SellShortAtMarket;
-      entradaFeitaNoDia := true;
-    end;
-  end;
-
-  if IsBought then
-  begin
-    if HabilitaStopGain and (StopGainTicks > 0) then
-    begin
-      precoAlvo := BuyPrice + alvoEmPontos;
-      SellToCoverLimit(precoAlvo);
-    end;
-
-    if HabilitaStopLoss and (StopLossTicks > 0) then
-    begin
-      precoStop := BuyPrice - stopEmPontos;
-      SellToCoverStop(precoStop, precoStop);
-    end;
-
-    tocouAjuste := High >= ajusteAnterior;
-    if tocouAjuste then
+    if IsBought then
       SellToCoverAtMarket;
-  end;
 
-  if IsSold then
-  begin
-    if HabilitaStopGain and (StopGainTicks > 0) then
-    begin
-      precoAlvo := SellPrice - alvoEmPontos;
-      BuyToCoverLimit(precoAlvo);
-    end;
-
-    if HabilitaStopLoss and (StopLossTicks > 0) then
-    begin
-      precoStop := SellPrice + stopEmPontos;
-      BuyToCoverStop(precoStop, precoStop);
-    end;
-
-    tocouAjuste := Low <= ajusteAnterior;
-    if tocouAjuste then
+    if IsSold then
       BuyToCoverAtMarket;
+  end
+  else
+  begin
+    if (HasPosition = false) and (operacoesNoDia < 1) then
+    begin
+      if sinalCompraAbertura then
+      begin
+        BuyAtMarket;
+        operacoesNoDia := operacoesNoDia + 1;
+      end
+      else if sinalVendaAbertura then
+      begin
+        SellShortAtMarket;
+        operacoesNoDia := operacoesNoDia + 1;
+      end;
+    end;
+
+    if IsBought then
+    begin
+      if ordensSaidaEnviadas = false then
+      begin
+        if HabilitaStopGain and (StopGainTicks > 0) then
+        begin
+          precoAlvo := BuyPrice + alvoEmPontos;
+          SellToCoverLimit(precoAlvo);
+        end;
+
+        if HabilitaStopLoss and (StopLossTicks > 0) then
+        begin
+          precoStop := BuyPrice - stopEmPontos;
+          SellToCoverStop(precoStop, precoStop);
+        end;
+
+        ordensSaidaEnviadas := true;
+      end;
+
+      tocouAjuste := High >= ajusteAnterior;
+      if tocouAjuste then
+        SellToCoverAtMarket;
+    end;
+
+    if IsSold then
+    begin
+      if ordensSaidaEnviadas = false then
+      begin
+        if HabilitaStopGain and (StopGainTicks > 0) then
+        begin
+          precoAlvo := SellPrice - alvoEmPontos;
+          BuyToCoverLimit(precoAlvo);
+        end;
+
+        if HabilitaStopLoss and (StopLossTicks > 0) then
+        begin
+          precoStop := SellPrice + stopEmPontos;
+          BuyToCoverStop(precoStop, precoStop);
+        end;
+
+        ordensSaidaEnviadas := true;
+      end;
+
+      tocouAjuste := Low <= ajusteAnterior;
+      if tocouAjuste then
+        BuyToCoverAtMarket;
+    end;
   end;
 end;
