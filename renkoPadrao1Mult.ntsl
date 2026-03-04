@@ -1,0 +1,424 @@
+input
+  // Janela de operação intradiária (HHMM).
+  HoraInicio(900);
+  HoraFim(1700);
+  // Stops por quantidade de ticks.
+  StopGainTicks(20);
+  StopLossTicks(20);
+  // Buffer no rompimento para reduzir falso gatilho.
+  BufferRompimentoTicks(1);
+  // Distancia do trailing stop em ticks (0 desabilita).
+  TrailingStopTicks(10);
+  // Quantidade maxima de contratos permitida na progressao.
+  NumeroMaximoContratos(5);
+  // Limite de entradas por dia (0 ou menor = sem limite).
+  MaxOperacoesDia(3);
+  // Quantidade máxima de candles para o rompimento acontecer após o padrão.
+  ValidadeRompimentoCandles(6);
+  // Bloqueia novas entradas por N candles apos saida por stop.
+  CooldownCandlesAposStop(3);
+
+var
+  dentroHorario : Boolean;
+  podeOperarDia : Boolean;
+  forcarZeragem : Boolean;
+  operacoesNoDia : Integer;
+  dataControle : Integer;
+  estavaPosicionado : Boolean;
+
+  candleAlta : Boolean;
+  candleBaixa : Boolean;
+
+  etapaCompra : Integer;
+  contAltaCompra : Integer;
+  contBaixaCompra : Integer;
+  maxMovimentoCompra : Float;
+  nivelRompimentoCompra : Float;
+  rompimentoCompraAtivo : Boolean;
+  idadeRompimentoCompra : Integer;
+
+  etapaVenda : Integer;
+  contBaixaVenda : Integer;
+  contAltaVenda : Integer;
+  minMovimentoVenda : Float;
+  nivelRompimentoVenda : Float;
+  rompimentoVendaAtivo : Boolean;
+  idadeRompimentoVenda : Integer;
+
+  alvoEmPontos : Float;
+  metadeAlvoEmPontos : Float;
+  stopEmPontos : Float;
+  trailingEmPontos : Float;
+  bufferRompimentoEmPontos : Float;
+  precoAlvo : Float;
+  precoStop : Float;
+  stopUltimoCompra : Float;
+  stopUltimoVenda : Float;
+  tipoPosicaoAnterior : Integer;
+  cooldownRestante : Integer;
+  iniciouCooldownNoCandle : Boolean;
+  contratosProximaEntrada : Integer;
+  contratosEntradaAtual : Integer;
+  bloqueiaOperacaoDia : Boolean;
+  teveGainNoDia : Boolean;
+  lossRecuperacaoPendente : Boolean;
+  precoEntradaOperacao : Float;
+  resultadoUltimaOperacao : Float;
+
+begin
+  // Controle de horário: só abre posição dentro da janela e zera após horário final.
+  dentroHorario := (Time >= HoraInicio) and (Time <= HoraFim);
+  forcarZeragem := Time > HoraFim;
+
+  // Conversao dos parametros em ticks para pontos do ativo.
+  alvoEmPontos := StopGainTicks * MinPriceIncrement;
+  metadeAlvoEmPontos := alvoEmPontos / 2;
+  stopEmPontos := StopLossTicks * MinPriceIncrement;
+  trailingEmPontos := TrailingStopTicks * MinPriceIncrement;
+  bufferRompimentoEmPontos := BufferRompimentoTicks * MinPriceIncrement;
+  iniciouCooldownNoCandle := false;
+
+  // Reinicia contadores e estados a cada novo dia.
+  if Date <> dataControle then
+  begin
+    operacoesNoDia := 0;
+    dataControle := Date;
+    estavaPosicionado := HasPosition;
+
+    etapaCompra := 0;
+    contAltaCompra := 0;
+    contBaixaCompra := 0;
+    maxMovimentoCompra := 0;
+    rompimentoCompraAtivo := false;
+    idadeRompimentoCompra := 0;
+
+    etapaVenda := 0;
+    contBaixaVenda := 0;
+    contAltaVenda := 0;
+    minMovimentoVenda := 0;
+    rompimentoVendaAtivo := false;
+    idadeRompimentoVenda := 0;
+    cooldownRestante := 0;
+    tipoPosicaoAnterior := 0;
+    stopUltimoCompra := 0;
+    stopUltimoVenda := 0;
+    contratosProximaEntrada := 1;
+    contratosEntradaAtual := 0;
+    bloqueiaOperacaoDia := false;
+    teveGainNoDia := false;
+    lossRecuperacaoPendente := false;
+    precoEntradaOperacao := 0;
+    resultadoUltimaOperacao := 0;
+  end;
+
+  // Avalia resultado da operacao encerrada para definir progressao de contratos.
+  if (estavaPosicionado = true) and (HasPosition = false) then
+  begin
+    resultadoUltimaOperacao := 0;
+    if tipoPosicaoAnterior = 1 then
+      resultadoUltimaOperacao := Close - precoEntradaOperacao;
+    if tipoPosicaoAnterior = -1 then
+      resultadoUltimaOperacao := precoEntradaOperacao - Close;
+
+    if resultadoUltimaOperacao > 0 then
+    begin
+      teveGainNoDia := true;
+      lossRecuperacaoPendente := false;
+      contratosProximaEntrada := contratosProximaEntrada + 1;
+      if contratosProximaEntrada > NumeroMaximoContratos then
+        contratosProximaEntrada := NumeroMaximoContratos;
+    end
+    else if resultadoUltimaOperacao < 0 then
+    begin
+      if teveGainNoDia then
+      begin
+        bloqueiaOperacaoDia := true;
+      end
+      else if lossRecuperacaoPendente then
+      begin
+        bloqueiaOperacaoDia := true;
+      end
+      else
+      begin
+        contratosProximaEntrada := contratosProximaEntrada * 2;
+        if contratosProximaEntrada > NumeroMaximoContratos then
+          contratosProximaEntrada := NumeroMaximoContratos;
+        lossRecuperacaoPendente := true;
+      end;
+    end;
+  end;
+
+  // Se saiu da posicao por stop, ativa cooldown para evitar reentrada imediata.
+  if (estavaPosicionado = true) and (HasPosition = false) then
+  begin
+    if (CooldownCandlesAposStop > 0) and (tipoPosicaoAnterior = 1) and (Low <= stopUltimoCompra) then
+    begin
+      cooldownRestante := CooldownCandlesAposStop;
+      iniciouCooldownNoCandle := true;
+    end;
+
+    if (CooldownCandlesAposStop > 0) and (tipoPosicaoAnterior = -1) and (High >= stopUltimoVenda) then
+    begin
+      cooldownRestante := CooldownCandlesAposStop;
+      iniciouCooldownNoCandle := true;
+    end;
+  end;
+
+  if (estavaPosicionado = false) and HasPosition then
+  begin
+    operacoesNoDia := operacoesNoDia + 1;
+    contratosEntradaAtual := contratosProximaEntrada;
+    precoEntradaOperacao := Close;
+    stopUltimoCompra := 0;
+    stopUltimoVenda := 0;
+  end;
+
+  estavaPosicionado := HasPosition;
+  podeOperarDia := ((MaxOperacoesDia <= 0) or (operacoesNoDia < MaxOperacoesDia)) and
+                   (bloqueiaOperacaoDia = false) and
+                   (NumeroMaximoContratos > 0) and
+                   (contratosProximaEntrada > 0);
+
+  // Em Renko, tratamos alta/baixa comparando o fechamento com o candle anterior.
+  candleAlta := Close > Close[1];
+  candleBaixa := Close < Close[1];
+
+  // Logica de compra:
+  // 1) Conta 3 ou mais candles de alta.
+  // 2) Aguarda 2 candles de baixa.
+  // 3) Arma compra no rompimento da maxima do micro movimento.
+  if candleAlta then
+  begin
+    if etapaCompra = 0 then
+    begin
+      contAltaCompra := contAltaCompra + 1;
+      if contAltaCompra = 1 then
+        maxMovimentoCompra := High
+      else if High > maxMovimentoCompra then
+        maxMovimentoCompra := High;
+    end
+    else if etapaCompra = 1 then
+    begin
+      etapaCompra := 0;
+      contAltaCompra := 1;
+      contBaixaCompra := 0;
+      maxMovimentoCompra := High;
+    end;
+  end
+  else if candleBaixa then
+  begin
+    if etapaCompra = 0 then
+    begin
+      if contAltaCompra >= 3 then
+      begin
+        etapaCompra := 1;
+        contBaixaCompra := 1;
+        if High > maxMovimentoCompra then
+          maxMovimentoCompra := High;
+      end
+      else
+      begin
+        contAltaCompra := 0;
+        maxMovimentoCompra := 0;
+      end;
+    end
+    else if etapaCompra = 1 then
+    begin
+      contBaixaCompra := contBaixaCompra + 1;
+      if High > maxMovimentoCompra then
+        maxMovimentoCompra := High;
+
+      if contBaixaCompra >= 2 then
+      begin
+        nivelRompimentoCompra := maxMovimentoCompra;
+        rompimentoCompraAtivo := true;
+        idadeRompimentoCompra := 0;
+
+        etapaCompra := 0;
+        contAltaCompra := 0;
+        contBaixaCompra := 0;
+        maxMovimentoCompra := 0;
+      end;
+    end;
+  end;
+
+  // Logica de venda (inversa da compra):
+  // 1) Conta 3 ou mais candles de baixa.
+  // 2) Aguarda 2 candles de alta.
+  // 3) Arma venda no rompimento da minima do micro movimento.
+  if candleBaixa then
+  begin
+    if etapaVenda = 0 then
+    begin
+      contBaixaVenda := contBaixaVenda + 1;
+      if contBaixaVenda = 1 then
+        minMovimentoVenda := Low
+      else if Low < minMovimentoVenda then
+        minMovimentoVenda := Low;
+    end
+    else if etapaVenda = 1 then
+    begin
+      etapaVenda := 0;
+      contBaixaVenda := 1;
+      contAltaVenda := 0;
+      minMovimentoVenda := Low;
+    end;
+  end
+  else if candleAlta then
+  begin
+    if etapaVenda = 0 then
+    begin
+      if contBaixaVenda >= 3 then
+      begin
+        etapaVenda := 1;
+        contAltaVenda := 1;
+        if Low < minMovimentoVenda then
+          minMovimentoVenda := Low;
+      end
+      else
+      begin
+        contBaixaVenda := 0;
+        minMovimentoVenda := 0;
+      end;
+    end
+    else if etapaVenda = 1 then
+    begin
+      contAltaVenda := contAltaVenda + 1;
+      if Low < minMovimentoVenda then
+        minMovimentoVenda := Low;
+
+      if contAltaVenda >= 2 then
+      begin
+        nivelRompimentoVenda := minMovimentoVenda;
+        rompimentoVendaAtivo := true;
+        idadeRompimentoVenda := 0;
+
+        etapaVenda := 0;
+        contBaixaVenda := 0;
+        contAltaVenda := 0;
+        minMovimentoVenda := 0;
+      end;
+    end;
+  end;
+
+  // Expira sinais antigos que nao romperam dentro do prazo configurado.
+  if rompimentoCompraAtivo then
+  begin
+    idadeRompimentoCompra := idadeRompimentoCompra + 1;
+    if (ValidadeRompimentoCandles > 0) and (idadeRompimentoCompra > ValidadeRompimentoCandles) then
+    begin
+      rompimentoCompraAtivo := false;
+      idadeRompimentoCompra := 0;
+    end;
+  end;
+
+  if rompimentoVendaAtivo then
+  begin
+    idadeRompimentoVenda := idadeRompimentoVenda + 1;
+    if (ValidadeRompimentoCandles > 0) and (idadeRompimentoVenda > ValidadeRompimentoCandles) then
+    begin
+      rompimentoVendaAtivo := false;
+      idadeRompimentoVenda := 0;
+    end;
+  end;
+
+  // Execucao:
+  // - fora do horario final: zera a mercado;
+  // - dentro do horario e sem posicao: executa rompimento se sinal estiver ativo.
+  if forcarZeragem then
+  begin
+    if IsBought then
+      SellToCoverAtMarket;
+
+    if IsSold then
+      BuyToCoverAtMarket;
+  end
+  else if dentroHorario and (HasPosition = false) and podeOperarDia and (cooldownRestante = 0) then
+  begin
+    if rompimentoCompraAtivo and (High > (nivelRompimentoCompra + bufferRompimentoEmPontos)) then
+    begin
+      BuyAtMarket(contratosProximaEntrada);
+      rompimentoCompraAtivo := false;
+      rompimentoVendaAtivo := false;
+      idadeRompimentoCompra := 0;
+      idadeRompimentoVenda := 0;
+    end
+    else if rompimentoVendaAtivo and (Low < (nivelRompimentoVenda - bufferRompimentoEmPontos)) then
+    begin
+      SellShortAtMarket(contratosProximaEntrada);
+      rompimentoCompraAtivo := false;
+      rompimentoVendaAtivo := false;
+      idadeRompimentoCompra := 0;
+      idadeRompimentoVenda := 0;
+    end;
+  end;
+
+  // Gestao da posicao comprada por alvo e stop fixos.
+  if (forcarZeragem = false) and IsBought then
+  begin
+    if StopGainTicks > 0 then
+    begin
+      precoAlvo := BuyPrice + alvoEmPontos;
+      SellToCoverLimit(precoAlvo);
+    end;
+
+    if StopLossTicks > 0 then
+    begin
+      precoStop := BuyPrice - stopEmPontos;
+      if stopUltimoCompra > precoStop then
+        precoStop := stopUltimoCompra;
+
+      // Ativa trailing apenas apos metade do alvo.
+      if (TrailingStopTicks > 0) and (StopGainTicks > 0) and (Close >= (BuyPrice + metadeAlvoEmPontos)) then
+      begin
+        if (Close - trailingEmPontos) > precoStop then
+          precoStop := Close - trailingEmPontos;
+      end;
+
+      stopUltimoCompra := precoStop;
+      SellToCoverStop(precoStop, precoStop);
+    end;
+  end;
+
+  // Gestao da posicao vendida por alvo e stop fixos.
+  if (forcarZeragem = false) and IsSold then
+  begin
+    if StopGainTicks > 0 then
+    begin
+      precoAlvo := SellPrice - alvoEmPontos;
+      BuyToCoverLimit(precoAlvo);
+    end;
+
+    if StopLossTicks > 0 then
+    begin
+      precoStop := SellPrice + stopEmPontos;
+      if (stopUltimoVenda > 0) and (stopUltimoVenda < precoStop) then
+        precoStop := stopUltimoVenda;
+
+      // Ativa trailing apenas apos metade do alvo.
+      if (TrailingStopTicks > 0) and (StopGainTicks > 0) and (Close <= (SellPrice - metadeAlvoEmPontos)) then
+      begin
+        if (Close + trailingEmPontos) < precoStop then
+          precoStop := Close + trailingEmPontos;
+      end;
+
+      stopUltimoVenda := precoStop;
+      BuyToCoverStop(precoStop, precoStop);
+    end;
+  end;
+
+  // Atualiza tipo da posicao para detectar saida por stop no proximo candle.
+  if IsBought then
+    tipoPosicaoAnterior := 1
+  else if IsSold then
+    tipoPosicaoAnterior := -1
+  else
+    tipoPosicaoAnterior := 0;
+
+  // Decrementa cooldown no fechamento do candle.
+  if (cooldownRestante > 0) and (iniciouCooldownNoCandle = false) then
+    cooldownRestante := cooldownRestante - 1;
+
+  // Referencia de transicao de posicao para o proximo candle.
+  estavaPosicionado := HasPosition;
+end;
