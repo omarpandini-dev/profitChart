@@ -1,0 +1,137 @@
+input
+  MaxContratos(5);
+
+var
+  dataControle : Integer;
+  estavaPosicionado : Boolean;
+  contratosAbertos : Integer;
+  maximoContratos : Integer;
+
+  candleAlta : Boolean;
+  candleBaixa : Boolean;
+
+  sequenciaAltaFlat : Integer;
+  sequenciaBaixaFlat : Integer;
+  sequenciaContraCompra : Integer;
+  sequenciaContraVenda : Integer;
+
+begin
+  maximoContratos := MaxContratos;
+  if maximoContratos < 1 then
+    maximoContratos := 1;
+
+  if Date <> dataControle then
+  begin
+    dataControle := Date;
+    estavaPosicionado := HasPosition;
+    contratosAbertos := 0;
+    sequenciaAltaFlat := 0;
+    sequenciaBaixaFlat := 0;
+    sequenciaContraCompra := 0;
+    sequenciaContraVenda := 0;
+  end;
+
+  candleAlta := Close > Close[1];
+  candleBaixa := Close < Close[1];
+
+  // Atualiza controle quando ocorre transicao de estado da posicao.
+  if (estavaPosicionado = true) and (HasPosition = false) then
+  begin
+    contratosAbertos := 0;
+    sequenciaContraCompra := 0;
+    sequenciaContraVenda := 0;
+  end;
+
+  if (estavaPosicionado = false) and HasPosition then
+  begin
+    if contratosAbertos < 1 then
+      contratosAbertos := 1;
+    sequenciaAltaFlat := 0;
+    sequenciaBaixaFlat := 0;
+  end;
+
+  // Sem posicao: entra com 1 contrato quando houver 2 renkos seguidos na mesma direcao.
+  if HasPosition = false then
+  begin
+    sequenciaContraCompra := 0;
+    sequenciaContraVenda := 0;
+
+    if candleAlta then
+    begin
+      sequenciaAltaFlat := sequenciaAltaFlat + 1;
+      sequenciaBaixaFlat := 0;
+    end
+    else if candleBaixa then
+    begin
+      sequenciaBaixaFlat := sequenciaBaixaFlat + 1;
+      sequenciaAltaFlat := 0;
+    end;
+
+    if sequenciaAltaFlat >= 2 then
+    begin
+      BuyAtMarket(1);
+      contratosAbertos := 1;
+      sequenciaAltaFlat := 0;
+      sequenciaBaixaFlat := 0;
+    end
+    else if sequenciaBaixaFlat >= 2 then
+    begin
+      SellShortAtMarket(1);
+      contratosAbertos := 1;
+      sequenciaAltaFlat := 0;
+      sequenciaBaixaFlat := 0;
+    end;
+  end;
+
+  // Comprado: a cada renko de alta adiciona 1 contrato (ate o limite).
+  // Stop: 2 renkos de baixa seguidos encerram a mercado.
+  if IsBought then
+  begin
+    if candleAlta then
+    begin
+      sequenciaContraCompra := 0;
+      if contratosAbertos < maximoContratos then
+      begin
+        BuyAtMarket(1);
+        contratosAbertos := contratosAbertos + 1;
+      end;
+    end
+    else if candleBaixa then
+    begin
+      sequenciaContraCompra := sequenciaContraCompra + 1;
+      if sequenciaContraCompra >= 2 then
+      begin
+        SellToCoverAtMarket;
+        contratosAbertos := 0;
+        sequenciaContraCompra := 0;
+      end;
+    end;
+  end;
+
+  // Vendido: a cada renko de baixa adiciona 1 contrato (ate o limite).
+  // Stop: 2 renkos de alta seguidos encerram a mercado.
+  if IsSold then
+  begin
+    if candleBaixa then
+    begin
+      sequenciaContraVenda := 0;
+      if contratosAbertos < maximoContratos then
+      begin
+        SellShortAtMarket(1);
+        contratosAbertos := contratosAbertos + 1;
+      end;
+    end
+    else if candleAlta then
+    begin
+      sequenciaContraVenda := sequenciaContraVenda + 1;
+      if sequenciaContraVenda >= 2 then
+      begin
+        BuyToCoverAtMarket;
+        contratosAbertos := 0;
+        sequenciaContraVenda := 0;
+      end;
+    end;
+  end;
+
+  estavaPosicionado := HasPosition;
+end;

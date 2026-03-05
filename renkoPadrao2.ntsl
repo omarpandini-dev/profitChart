@@ -1,7 +1,8 @@
 input
   // Janela de operação intradiária (HHMM).
-  HoraInicio(900);
+  HoraInicio(930);
   HoraFim(1700);
+  ContratosPadrao(1);
   // Stops por quantidade de ticks.
   StopGainTicks(20);
   StopLossTicks(20);
@@ -9,8 +10,6 @@ input
   BufferRompimentoTicks(1);
   // Distancia do trailing stop em ticks (0 desabilita).
   TrailingStopTicks(10);
-  // Quantidade maxima de contratos permitida na progressao.
-  NumeroMaximoContratos(5);
   // Limite de entradas por dia (0 ou menor = sem limite).
   MaxOperacoesDia(3);
   // Quantidade máxima de candles para o rompimento acontecer após o padrão.
@@ -58,10 +57,6 @@ var
   cooldownRestante : Integer;
   iniciouCooldownNoCandle : Boolean;
   contratosProximaEntrada : Integer;
-  contratosEntradaAtual : Integer;
-  bloqueiaOperacaoDia : Boolean;
-  teveGainNoDia : Boolean;
-  lossRecuperacaoPendente : Boolean;
   precoEntradaOperacao : Float;
   resultadoUltimaOperacao : Float;
 
@@ -102,50 +97,11 @@ begin
     tipoPosicaoAnterior := 0;
     stopUltimoCompra := 0;
     stopUltimoVenda := 0;
-    contratosProximaEntrada := 1;
-    contratosEntradaAtual := 0;
-    bloqueiaOperacaoDia := false;
-    teveGainNoDia := false;
-    lossRecuperacaoPendente := false;
+    contratosProximaEntrada := ContratosPadrao;
+    if contratosProximaEntrada < 1 then
+      contratosProximaEntrada := 1;
     precoEntradaOperacao := 0;
     resultadoUltimaOperacao := 0;
-  end;
-
-  // Avalia resultado da operacao encerrada para definir progressao de contratos.
-  if (estavaPosicionado = true) and (HasPosition = false) then
-  begin
-    resultadoUltimaOperacao := 0;
-    if tipoPosicaoAnterior = 1 then
-      resultadoUltimaOperacao := Close - precoEntradaOperacao;
-    if tipoPosicaoAnterior = -1 then
-      resultadoUltimaOperacao := precoEntradaOperacao - Close;
-
-    if resultadoUltimaOperacao > 0 then
-    begin
-      teveGainNoDia := true;
-      lossRecuperacaoPendente := false;
-      contratosProximaEntrada := contratosProximaEntrada + 1;
-      if contratosProximaEntrada > NumeroMaximoContratos then
-        contratosProximaEntrada := NumeroMaximoContratos;
-    end
-    else if resultadoUltimaOperacao < 0 then
-    begin
-      if teveGainNoDia then
-      begin
-        bloqueiaOperacaoDia := true;
-      end
-      else if lossRecuperacaoPendente then
-      begin
-        bloqueiaOperacaoDia := true;
-      end
-      else
-      begin
-        contratosProximaEntrada := contratosProximaEntrada * 2;
-        if contratosProximaEntrada > NumeroMaximoContratos then
-          contratosProximaEntrada := NumeroMaximoContratos;
-        lossRecuperacaoPendente := true;
-      end;
-    end;
   end;
 
   // Se saiu da posicao por stop, ativa cooldown para evitar reentrada imediata.
@@ -164,20 +120,45 @@ begin
     end;
   end;
 
+  if (estavaPosicionado = true) and (HasPosition = false) then
+  begin
+    resultadoUltimaOperacao := 0;
+
+    if tipoPosicaoAnterior = 1 then
+    begin
+      if Close > precoEntradaOperacao then
+        resultadoUltimaOperacao := 1
+      else if Close < precoEntradaOperacao then
+        resultadoUltimaOperacao := -1;
+    end
+    else if tipoPosicaoAnterior = -1 then
+    begin
+      if Close < precoEntradaOperacao then
+        resultadoUltimaOperacao := 1
+      else if Close > precoEntradaOperacao then
+        resultadoUltimaOperacao := -1;
+    end;
+
+    if resultadoUltimaOperacao > 0 then
+      contratosProximaEntrada := contratosProximaEntrada + 1
+    else if resultadoUltimaOperacao < 0 then
+    begin
+      contratosProximaEntrada := ContratosPadrao;
+      if contratosProximaEntrada < 1 then
+        contratosProximaEntrada := 1;
+    end;
+  end;
+
   if (estavaPosicionado = false) and HasPosition then
   begin
     operacoesNoDia := operacoesNoDia + 1;
-    contratosEntradaAtual := contratosProximaEntrada;
-    precoEntradaOperacao := Close;
     stopUltimoCompra := 0;
     stopUltimoVenda := 0;
+    precoEntradaOperacao := Close;
   end;
 
   estavaPosicionado := HasPosition;
-  podeOperarDia := ((MaxOperacoesDia <= 0) or (operacoesNoDia < MaxOperacoesDia)) and
-                   (bloqueiaOperacaoDia = false) and
-                   (NumeroMaximoContratos > 0) and
-                   (contratosProximaEntrada > 0);
+  podeOperarDia := (MaxOperacoesDia <= 0) or (operacoesNoDia < MaxOperacoesDia);
 
   // Em Renko, tratamos alta/baixa comparando o fechamento com o candle anterior.
   candleAlta := Close > Close[1];
@@ -376,7 +357,7 @@ begin
       end;
 
       stopUltimoCompra := precoStop;
-      SellToCoverStop(precoStop, precoStop+100);
+      SellToCoverStop(precoStop, precoStop);
     end;
   end;
 
@@ -403,7 +384,7 @@ begin
       end;
 
       stopUltimoVenda := precoStop;
-      BuyToCoverStop(precoStop, precoStop-200);
+      BuyToCoverStop(precoStop, precoStop);
     end;
   end;
 
