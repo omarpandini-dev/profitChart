@@ -1,0 +1,193 @@
+{ Estratégia: Pirâmide Renko - Mini Índice }
+{ Autor: Nelogica - Code Builder }
+{ Descrição: Estratégia para Mini Índice em gráfico Renko que abre posição após dois
+candles consecutivos na mesma direção e adiciona contratos a cada candle favorável,
+encerrando por sinal contrário, meta financeira ou limite de perda diária. }
+
+input
+    QtdContratos(1);         { Quantidade de contratos por ordem (padrão e pirâmide) }
+    LimiteContratos(5);      { Número máximo de contratos na mesma operação }
+    MetaFinanceira(0);       { Meta de ganho diário em R$ (0 = sem limite) }
+    LimitePerdaDiaria(0);    { Limite de perda diária em R$ (0 = sem limite) }
+    HoraInicio(900);         { Horário de início das operações (formato HHMM) }
+    HoraFim(1700);           { Horário de fim para abertura de novas operações (formato HHMM) }
+
+var
+  { --- Contadores de candles consecutivos --- }
+    ContadorPositivo  : Integer; { Candles positivos consecutivos }
+    ContadorNegativo  : Integer; { Candles negativos consecutivos }
+
+  { --- Flags de controle diário --- }
+    MetaAtingida      : Boolean; { True se a meta financeira foi atingida no dia }
+    PerdaAtingida     : Boolean; { True se o limite de perda foi atingido no dia }
+    UltimaData        : Integer; { Armazena a data do último candle processado }
+
+  { --- Controle de posição --- }
+    TotalContratos    : Integer; { Total de contratos atualmente na posição }
+
+  { --- Variáveis auxiliares de leitura de série --- }
+    FechamentoAtual   : Float;   { Close do candle atual }
+    AberturaAtual     : Float;   { Open do candle atual }
+    ResultadoDia      : Float;   { Resultado financeiro acumulado no dia }
+    HoraAtual         : Integer; { Hora do candle atual }
+    DataAtual         : Integer; { Data do candle atual }
+
+begin
+    { ============================================================
+    LEITURA DE VALORES DE SÉRIE FORA DE BLOCOS CONDICIONAIS
+    (Boa prática NTSL: evitar referências posicionais dentro de
+    blocos condicionais)
+    ============================================================ }
+    FechamentoAtual := Close;
+    AberturaAtual   := Open;
+    ResultadoDia    := DailyResult(True);
+    HoraAtual       := Time;
+    DataAtual       := Date;
+
+    { ============================================================
+    RESET DIÁRIO
+    Detecta virada de dia e reseta os flags de controle.
+    Isso garante que a meta e o limite de perda sejam avaliados
+    apenas dentro do mesmo dia de negociação.
+    ============================================================ }
+    if (DataAtual <> UltimaData) then
+    begin
+        MetaAtingida   := False;
+        PerdaAtingida  := False;
+        UltimaData     := DataAtual;
+        TotalContratos := 0;
+    end;
+
+    { ============================================================
+    VERIFICAÇÃO DE META FINANCEIRA E LIMITE DE PERDA
+    Atualiza os flags com base no resultado acumulado do dia.
+    MetaFinanceira > 0: bloqueia ao atingir o ganho alvo.
+    LimitePerdaDiaria > 0: bloqueia ao atingir a perda máxima.
+    ============================================================ }
+    if (MetaFinanceira > 0) and (ResultadoDia >= MetaFinanceira) then
+        MetaAtingida := True;
+
+    if (LimitePerdaDiaria > 0) and (ResultadoDia <= -LimitePerdaDiaria) then
+        PerdaAtingida := True;
+
+    { ============================================================
+    CONTAGEM DE CANDLES CONSECUTIVOS EM RENKO
+    Em Renko, candle positivo: Close > Open
+    candle negativo: Close < Open
+    Os contadores são mutuamente exclusivos: ao incrementar um,
+    o outro é zerado.
+    ============================================================ }
+    if (FechamentoAtual > AberturaAtual) then
+    begin
+        ContadorPositivo := ContadorPositivo + 1;
+        ContadorNegativo := 0;
+    end
+    else if (FechamentoAtual < AberturaAtual) then
+    begin
+        ContadorNegativo := ContadorNegativo + 1;
+        ContadorPositivo := 0;
+    end;
+
+    { ============================================================
+    ENCERRAMENTO DE POSIÇÃO DE COMPRA
+    Condição: dois candles negativos consecutivos.
+    Fecha a posição a mercado independentemente de meta/perda,
+    pois o sinal técnico de saída deve sempre ser respeitado.
+    ============================================================ }
+    if IsBought then
+    begin
+        if (ContadorNegativo >= 2) then
+        begin
+            //SellToCoverAtMarket;
+            ClosePosition;
+            TotalContratos := 0;
+        end;
+    end;
+
+    { ============================================================
+    ENCERRAMENTO DE POSIÇÃO DE VENDA
+    Condição: dois candles positivos consecutivos.
+    ============================================================ }
+    if IsSold then
+    begin
+        if (ContadorPositivo >= 2) then
+        begin
+            //BuyToCoverAtMarket;
+            ClosePosition;
+            TotalContratos := 0;
+        end;
+    end;
+
+    { ============================================================
+    ENCERRAMENTO POR META OU PERDA (qualquer posição aberta)
+    Se meta ou perda foram atingidas e ainda há posição aberta,
+    encerra imediatamente a mercado.
+    ============================================================ }
+    if (MetaAtingida or PerdaAtingida) and HasPosition then
+    begin
+        ClosePosition;
+        TotalContratos := 0;
+    end;
+
+    { ============================================================
+    JANELA DE HORÁRIO E BLOQUEIOS
+    A partir daqui, nenhuma nova ordem de abertura ou pirâmide
+    será enviada fora do horário ou se meta/perda foram atingidas.
+    ============================================================ }
+    if (not MetaAtingida) and (not PerdaAtingida) and
+    (HoraAtual >= HoraInicio) and (HoraAtual <= HoraFim) then
+    begin
+
+        { ==========================================================
+        LÓGICA DE COMPRA
+        ========================================================== }
+
+        { --- Abertura de posição comprada ---
+        Condição: exatamente 2 candles positivos consecutivos e
+        sem posição aberta. Entra com a quantidade padrão. }
+        if (ContadorPositivo = 2) and (not HasPosition) then
+        begin
+            BuyAtMarket(QtdContratos);
+            TotalContratos := QtdContratos;
+        end;
+
+        { --- Pirâmide de compra ---
+        Condição: posição comprada aberta, candle positivo atual
+        (ContadorPositivo >= 1) e total de contratos abaixo do
+            limite máximo configurado. Adiciona mais contratos. }
+        if IsBought and
+        (ContadorPositivo >= 1) and
+        (TotalContratos + QtdContratos <= LimiteContratos) then
+        begin
+            BuyAtMarket(QtdContratos);
+            TotalContratos := TotalContratos + QtdContratos;
+        end;
+
+        { ==========================================================
+        LÓGICA DE VENDA
+        ========================================================== }
+
+        { --- Abertura de posição vendida ---
+        Condição: exatamente 2 candles negativos consecutivos e
+        sem posição aberta. Entra com a quantidade padrão. }
+        if (ContadorNegativo = 2) and (not HasPosition) then
+        begin
+            SellShortAtMarket(QtdContratos);
+            TotalContratos := QtdContratos;
+        end;
+
+        { --- Pirâmide de venda ---
+        Condição: posição vendida aberta, candle negativo atual
+        (ContadorNegativo >= 1) e total de contratos abaixo do
+            limite máximo configurado. Adiciona mais contratos. }
+        if IsSold and
+        (ContadorNegativo >= 1) and
+        (TotalContratos + QtdContratos <= LimiteContratos) then
+        begin
+            SellShortAtMarket(QtdContratos);
+            TotalContratos := TotalContratos + QtdContratos;
+        end;
+
+    end; { fim do bloco de janela de horário e bloqueios }
+
+end;

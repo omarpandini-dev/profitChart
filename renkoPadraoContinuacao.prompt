@@ -1,0 +1,34 @@
+No arquivo renkoPadraoContinuacao.ntsl crie a estratégia abaixo:
+
+Será utilizado no mini indice.
+Será usado gráfico renko.
+Condição de compra:
+  - Sempre quando fechar o segundo candle seguido positivo abrir uma compra com a quantidade de contratos padrão estipulado via parâmetro
+  - Depois de iniciado o trade na compra, sempre quando fechar um candle positivo comprar mais contratos conforme parâmetro de contrato padrão.
+
+Exemplo de operação:
+  - Fechou dois candles positivos seguidos, abre uma compra, digamos que o contrato padrão via parãmetro seja 1 mini contrato, então irá comprar um mini contrato.
+  - Depois sempre que fechar um candle positivo, comprar mais um padrão, nesse caso, 1 mini contrato.
+
+Condições de encerramento da posição de compra:
+  - Sempre quando fechar dois candles negativos seguidos, encerrar a operação a mercado.
+  - Quando atingir um resultado financeiro passado como parâmetro. Exemplo: Se o parâmetro de meta financeira for atingida, encerra a operação a mercado, e não abre mais nenhuma operação. Se o parâmetro de meta financeira for informado 0, não terá limites.
+  - Também terá um limite de perda diário, se esse parâmetro for atingido, não opera mais no dia. se for informado 0, não terá limites.  
+  
+  
+Condição de venda:
+  - Sempre quando fechar o segundo candle seguido negativo abrir uma venda com a quantidade de contratos padrão estipulado via parâmetro
+  - Depois de iniciado o trade na venda, sempre quando fechar um candle negativo vender mais contratos conforme parâmetro de contrato padrão.
+
+Exemplo de operação:
+  - Fechou dois candles negativos seguidos, abre uma venda, digamos que o contrato padrão via parãmetro seja 1 mini contrato, então irá vender um mini contrato.
+  - Depois sempre que fechar um candle negativo, vende mais um padrão, nesse caso, 1 mini contrato.
+
+Condições de encerramento da posição de venda:
+  - Sempre quando fechar dois candles positivo seguidos, encerrar a operação a mercado.
+  - Quando atingir um resultado financeiro passado como parâmetro. Exemplo: Se o parâmetro de meta financeira for atingida, encerra a operação a mercado, e não abre mais nenhuma operação. Se o parâmetro de meta financeira for informado 0, não terá limites.
+  - Também terá um limite de perda diário, se esse parâmetro for atingido, não opera mais no dia. se for informado 0, não terá limites. 
+
+Parâmetros obrigatórios
+  - Hora inicial das operações
+  - Número de contratos limite que poderá abrir na mesma operação.
