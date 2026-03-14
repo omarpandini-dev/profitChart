@@ -1,0 +1,245 @@
+{ Estratégia: HiLo VWAP Renko - Mini Índice }
+{ Autor: Nelogica - Code Builder }
+{ Descrição: Estratégia para mini índice em gráfico Renko que opera cruzamentos
+de fechamento acima/abaixo do VWAP diário, com pirâmide de contratos,
+parcial automática, meta de gain e meta de loss diária. }
+
+input
+    hrInicial(0900);    { Hora inicial da estratégia (formato HHMM) }
+    hrFinal(1745);      { Hora final da estratégia (formato HHMM) }
+    qtdCtrPadrao(1);    { Quantidade de contratos padrão por entrada/adição }
+    qtdMaxCtr(5);       { Quantidade máxima de contratos permitida }
+    vlParcial(200);     { Resultado financeiro para acionar parcial (em reais) }
+    vlMetaGain(500);    { Meta de ganho diário para encerrar operações (em reais) }
+    vlMetaLoss(300);    { Meta de perda diária para encerrar operações (em reais) }
+
+var
+    { --- Variáveis de controle de estado --- }
+    bParcialFeita    : Boolean; { Indica se a parcial já foi executada na operação atual }
+    bEncerrado       : Boolean; { Indica se o dia foi encerrado por meta (gain ou loss) }
+    bPararAdicionar  : Boolean; { Indica se deve parar de adicionar contratos (após parcial) }
+
+    { --- Variáveis auxiliares de preço e VWAP --- }
+    vwapAtual        : Float;   { Valor do VWAP diário no candle atual }
+    closeAtual       : Float;   { Fechamento do candle atual }
+    closeAnterior    : Float;   { Fechamento do candle anterior }
+
+    { --- Variáveis de resultado e posição --- }
+    resultadoAberto  : Float;   { Resultado financeiro da operação em aberto }
+    resultadoDia     : Float;   { Resultado acumulado do dia (fechado + aberto) }
+    posicaoAtual     : Integer; { Tamanho atual da posição (positivo=comprado, negativo=vendido) }
+    qtdParaParcial   : Float;   { Quantidade a zerar na parcial (metade da posição) }
+    qtdParaAdicionar : Float;   { Quantidade a adicionar na pirâmide }
+
+begin
+    { ================================================================
+    CAPTURA DOS VALORES DE MERCADO
+    Atribuímos os valores às variáveis auxiliares antes de qualquer
+    lógica, evitando acessos repetidos a séries dentro de blocos
+    condicionais (boa prática em NTSL)
+    ================================================================ }
+    vwapAtual     := VWAP(1);
+    closeAtual    := Close;
+    closeAnterior := Close[1];
+    resultadoAberto := OpenResult;
+    resultadoDia    := DailyResult(True);
+    posicaoAtual    := Position;
+
+    { ================================================================
+    VERIFICAÇÃO DE METAS DIÁRIAS (GAIN E LOSS)
+    Checamos se o resultado do dia atingiu alguma meta.
+    Uma vez encerrado (bEncerrado = True), toda a lógica operacional
+    é bloqueada pelo bloco else externo abaixo.
+    ================================================================ }
+
+    { Meta de GAIN: resultado do dia >= vlMetaGain }
+    if (not bEncerrado) and (resultadoDia >= vlMetaGain) then
+    begin
+        bEncerrado := True;
+        if HasPosition then
+            ClosePosition;
+    end;
+
+    { Meta de LOSS: perda do dia >= vlMetaLoss (resultado negativo) }
+    if (not bEncerrado) and (resultadoDia <= -vlMetaLoss) then
+    begin
+        bEncerrado := True;
+        if HasPosition then
+            ClosePosition;
+    end;
+
+    { ================================================================
+    BLOCO PRINCIPAL DE OPERAÇÃO
+    Só executa se o dia NÃO foi encerrado por meta.
+    Substitui o uso inválido de 'exit' por estrutura if/else.
+        ================================================================ }
+    if (not bEncerrado) then
+    begin
+
+        { ============================================================
+        VERIFICAÇÃO DE HORÁRIO DE OPERAÇÃO
+        Fora do horário: encerra posição se houver e não opera.
+        Dentro do horário: executa toda a lógica de trading.
+        ============================================================ }
+        if (Time < hrInicial) or (Time > hrFinal) then
+        begin
+            { Fora do horário — encerra posição aberta se existir }
+            if HasPosition then
+                ClosePosition;
+        end
+        else
+        begin
+            { ========================================================
+            DENTRO DO HORÁRIO DE OPERAÇÃO
+            ======================================================== }
+
+            { --------------------------------------------------------
+            RESET DE ESTADO AO INICIAR NOVA OPERAÇÃO
+            Quando não há posição aberta, resetamos os flags para
+            que a próxima operação comece com estado limpo
+            -------------------------------------------------------- }
+            if not HasPosition then
+            begin
+                bParcialFeita   := False;
+                bPararAdicionar := False;
+            end;
+
+            { --------------------------------------------------------
+            VERIFICAÇÃO DE PARCIAL EM ANDAMENTO
+            Se há posição aberta, resultado atingiu vlParcial e a
+            parcial ainda não foi feita: zera metade e bloqueia
+            novas adições de contratos.
+            -------------------------------------------------------- }
+            if HasPosition and (not bParcialFeita) then
+            begin
+                if (resultadoAberto >= vlParcial) then
+                begin
+                    { Calcula metade da posição para zerar }
+                    qtdParaParcial := Abs(posicaoAtual) / 2;
+
+                    { Garante quantidade mínima de 1 lote }
+                    if qtdParaParcial < 1 then
+                        qtdParaParcial := 1;
+
+                    { Executa a parcial conforme a direção da posição }
+                    if IsBought then
+                        SellToCoverAtMarket(qtdParaParcial)
+                    else if IsSold then
+                        BuyToCoverAtMarket(qtdParaParcial);
+
+                    bParcialFeita   := True;
+                    bPararAdicionar := True;
+                end;
+            end;
+
+            { ========================================================
+            REGRAS DE COMPRA
+            ======================================================== }
+
+            { --------------------------------------------------------
+            ENTRADA COMPRA
+            Condição: candle anterior fechou ABAIXO do VWAP
+            E candle atual fechou ACIMA do VWAP
+            -------------------------------------------------------- }
+            if (closeAnterior < vwapAtual) and (closeAtual > vwapAtual) then
+            begin
+                if not HasPosition then
+                begin
+                    { Entrada inicial com quantidade padrão }
+                    BuyAtMarket(qtdCtrPadrao);
+                end
+                else if IsSold then
+                begin
+                    { Reversão: estava vendido, fecha e abre compra }
+                    ClosePosition;
+                    BuyAtMarket(qtdCtrPadrao);
+                end;
+            end;
+
+            { --------------------------------------------------------
+            SAÍDA COMPRA (STOP A MERCADO)
+            Condição: está comprado e candle fechou ABAIXO do VWAP
+            -------------------------------------------------------- }
+            if IsBought and (closeAtual < vwapAtual) then
+                ClosePosition;
+
+            { --------------------------------------------------------
+            PIRÂMIDE COMPRA
+            Condição: está comprado, candle fechou ACIMA do VWAP,
+            parcial não foi feita e posição abaixo do máximo.
+            A cada candle favorável adiciona qtdCtrPadrao contratos.
+            -------------------------------------------------------- }
+            if IsBought and (not bPararAdicionar) and (closeAtual > vwapAtual) then
+            begin
+                if (posicaoAtual + qtdCtrPadrao) <= qtdMaxCtr then
+                begin
+                    { Há espaço para adicionar a quantidade padrão }
+                    qtdParaAdicionar := qtdCtrPadrao;
+                    BuyAtMarket(qtdParaAdicionar);
+                end
+                else if (posicaoAtual < qtdMaxCtr) then
+                begin
+                    { Adiciona apenas o restante até o máximo }
+                    qtdParaAdicionar := qtdMaxCtr - posicaoAtual;
+                    BuyAtMarket(qtdParaAdicionar);
+                end;
+            end;
+
+            { ========================================================
+            REGRAS DE VENDA
+            ======================================================== }
+
+            { --------------------------------------------------------
+            ENTRADA VENDA
+            Condição: candle anterior fechou ACIMA do VWAP
+            E candle atual fechou ABAIXO do VWAP
+            -------------------------------------------------------- }
+            if (closeAnterior > vwapAtual) and (closeAtual < vwapAtual) then
+            begin
+                if not HasPosition then
+                begin
+                    { Entrada inicial com quantidade padrão }
+                    SellShortAtMarket(qtdCtrPadrao);
+                end
+                else if IsBought then
+                begin
+                    { Reversão: estava comprado, fecha e abre venda }
+                    ClosePosition;
+                    SellShortAtMarket(qtdCtrPadrao);
+                end;
+            end;
+
+            { --------------------------------------------------------
+            SAÍDA VENDA (STOP A MERCADO)
+            Condição: está vendido e candle fechou ACIMA do VWAP
+            -------------------------------------------------------- }
+            if IsSold and (closeAtual > vwapAtual) then
+                ClosePosition;
+
+            { --------------------------------------------------------
+            PIRÂMIDE VENDA
+            Condição: está vendido, candle fechou ABAIXO do VWAP,
+            parcial não foi feita e posição abaixo do máximo.
+            A cada candle favorável adiciona qtdCtrPadrao contratos.
+            -------------------------------------------------------- }
+            if IsSold and (not bPararAdicionar) and (closeAtual < vwapAtual) then
+            begin
+                if (Abs(posicaoAtual) + qtdCtrPadrao) <= qtdMaxCtr then
+                begin
+                    { Há espaço para adicionar a quantidade padrão }
+                    qtdParaAdicionar := qtdCtrPadrao;
+                    SellShortAtMarket(qtdParaAdicionar);
+                end
+                else if (Abs(posicaoAtual) < qtdMaxCtr) then
+                begin
+                    { Adiciona apenas o restante até o máximo }
+                    qtdParaAdicionar := qtdMaxCtr - Abs(posicaoAtual);
+                    SellShortAtMarket(qtdParaAdicionar);
+                end;
+            end;
+
+        end; { fim do bloco "dentro do horário" }
+
+    end; { fim do bloco "not bEncerrado" }
+
+end;
