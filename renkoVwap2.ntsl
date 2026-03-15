@@ -1,0 +1,351 @@
+{ Estratégia: VWAP Renko Trailing - Mini Índice }
+{ Autor: Nelogica - Code Builder }
+{ Descrição: Estratégia para mini índice em gráfico Renko que opera cruzamentos
+de fechamento acima/abaixo do VWAP diário, com pirâmide de contratos,
+parcial automática seguida de trailing stop dinâmico, proteção contra stop
+pulado via fechamento no VWAP, reversão automática de posição e meta de
+gain/loss diária. }
+
+input
+    hrInicial(0902);        { Hora inicial da estratégia (formato HHMM) }
+    hrFinal(1500);          { Hora final da estratégia (formato HHMM) }
+    qtdCtrPadrao(1);        { Quantidade de contratos padrão por entrada/adição }
+    qtdMaxCtr(10);           { Quantidade máxima de contratos permitida }
+    vlParcial(200);         { Resultado financeiro para acionar parcial (em reais) }
+    vlMetaGain(300);        { Meta de ganho diário para encerrar operações (em reais) }
+    vlMetaLoss(300);        { Meta de perda diária para encerrar operações (em reais) }
+    qtTrailingStop(50);     { Distância em pontos do trailing stop após a parcial }
+
+var
+    { --- Variáveis de controle de estado --- }
+    bParcialFeita          : Boolean; { Indica se a parcial já foi executada na operação atual }
+    bEncerrado             : Boolean; { Indica se o dia foi encerrado por meta (gain ou loss) }
+    bPararAdicionar        : Boolean; { Bloqueia novas adições após a parcial }
+
+    { --- Variáveis de trailing stop --- }
+    melhorPreco            : Float;   { Melhor preço atingido desde a ativação do trailing stop }
+    stopTrailing           : Float;   { Nível atual do trailing stop }
+    qtdRestantePosParcial  : Float;   { Quantidade restante após a parcial para o trailing }
+
+    { --- Variáveis auxiliares de preço e VWAP --- }
+    vwapAtual              : Float;   { Valor do VWAP diário no candle atual }
+    closeAtual             : Float;   { Fechamento do candle atual }
+    closeAnterior          : Float;   { Fechamento do candle anterior }
+
+    { --- Variáveis de resultado e posição --- }
+    resultadoAberto        : Float;   { Resultado financeiro da operação em aberto }
+    resultadoDia           : Float;   { Resultado acumulado do dia (fechado + aberto) }
+    posicaoAtual           : Integer; { Tamanho atual da posição }
+    qtdParaParcial         : Float;   { Quantidade a zerar na parcial (metade da posição) }
+    qtdParaAdicionar       : Float;   { Quantidade a adicionar na pirâmide }
+
+begin
+    { ================================================================
+    CAPTURA DOS VALORES DE MERCADO
+    Atribuímos os valores às variáveis auxiliares antes de qualquer
+    lógica, evitando acessos repetidos a séries dentro de blocos
+    condicionais (boa prática em NTSL).
+    ================================================================ }
+    vwapAtual       := VWAP(1);
+    plotn(1,vwapAtual);
+    closeAtual      := Close;
+    closeAnterior   := Close[1];
+    resultadoAberto := OpenResult;
+    resultadoDia    := DailyResult(True);
+    posicaoAtual    := Position;
+
+    if(date <> date[1])then
+    begin
+      bEncerrado            := false;
+      bParcialFeita         := False;
+      bPararAdicionar       := False;
+      melhorPreco           := 0;
+      stopTrailing          := 0;
+      qtdRestantePosParcial := 0; 
+    end;
+
+    { ================================================================
+    VERIFICAÇÃO DE METAS DIÁRIAS (GAIN E LOSS)
+    Checamos se o resultado do dia atingiu alguma meta.
+    Uma vez encerrado (bEncerrado = True), toda a lógica operacional
+    é bloqueada pelo bloco else externo abaixo.
+    ================================================================ }
+
+    { Meta de GAIN: resultado do dia >= vlMetaGain }
+    {if (not bEncerrado) and (resultadoDia >= vlMetaGain) then}
+    if (HasPosition) and (resultadoDia >= vlMetaGain) then
+    begin
+        bEncerrado := True;
+        ClosePosition;
+    end;
+
+    { Meta de LOSS: perda do dia >= vlMetaLoss (resultado negativo) }
+    {if (not bEncerrado) and (resultadoDia <= -vlMetaLoss) then}
+    if (HasPosition) and (resultadoDia <= -vlMetaLoss) then
+    begin
+        bEncerrado := True;       
+        ClosePosition;
+    end;
+
+    { ================================================================
+    BLOCO PRINCIPAL DE OPERAÇÃO
+    Só executa se o dia NÃO foi encerrado por meta.
+    ================================================================ }
+    if (not bEncerrado) then
+    begin
+
+        { ============================================================
+        VERIFICAÇÃO DE HORÁRIO DE OPERAÇÃO
+        Fora do horário: encerra posição se houver e não opera.
+        Dentro do horário: executa toda a lógica de trading.
+        ============================================================ }
+        if (Time < hrInicial) or (Time > hrFinal) then
+        begin
+            { Fora do horário — encerra posição aberta se existir }
+            if HasPosition then
+                ClosePosition;
+        end
+        else
+        begin
+            { ========================================================
+            DENTRO DO HORÁRIO DE OPERAÇÃO
+            ======================================================== }
+
+            { --------------------------------------------------------
+            RESET DE ESTADO AO INICIAR NOVA OPERAÇÃO
+            Quando não há posição aberta, resetamos os flags e
+            variáveis de trailing para que a próxima operação
+            comece com estado limpo.
+            -------------------------------------------------------- }
+            if not HasPosition then
+            begin
+                bParcialFeita         := False;
+                bPararAdicionar       := False;
+                melhorPreco           := 0;
+                stopTrailing          := 0;
+                qtdRestantePosParcial := 0;
+            end;
+
+            { ========================================================
+            BLOCO 1 — PROTEÇÃO CONTRA STOP PULADO (PRIORIDADE MÁXIMA)
+            Esta verificação ocorre ANTES de qualquer outra lógica
+            de saída ou entrada. Se o preço fechou do lado errado
+            do VWAP, encerramos tudo a mercado imediatamente e
+            abrimos posição na direção contrária (reversão).
+
+            A reversão só ocorre se o dia ainda não foi encerrado
+            por meta (bEncerrado já foi verificado acima).
+
+            Importante: ClosePosition cancela ordens pendentes e
+            fecha a posição. A nova ordem de entrada será executada
+            no próximo candle, conforme comportamento padrão do NTSL.
+            ======================================================== }
+
+            { --------------------------------------------------------
+            PROTEÇÃO + REVERSÃO — POSIÇÃO COMPRADA
+            Condição: está comprado E fechou ABAIXO do VWAP.
+            Ação: fecha tudo a mercado + abre venda com qtdCtrPadrao.
+            -------------------------------------------------------- }
+            if IsBought and (closeAtual < vwapAtual) then
+            begin
+                { Encerra a posição comprada a mercado (proteção) }
+                ClosePosition;
+
+                { Reseta o estado para a nova operação de venda }
+                bParcialFeita         := False;
+                bPararAdicionar       := False;
+                melhorPreco           := 0;
+                stopTrailing          := 0;
+                qtdRestantePosParcial := 0;
+
+                { Inicia venda na direção contrária com contrato padrão }
+                SellShortAtMarket(qtdCtrPadrao);
+            end;
+
+            { --------------------------------------------------------
+            PROTEÇÃO + REVERSÃO — POSIÇÃO VENDIDA
+            Condição: está vendido E fechou ACIMA do VWAP.
+            Ação: fecha tudo a mercado + abre compra com qtdCtrPadrao.
+            -------------------------------------------------------- }
+            if IsSold and (closeAtual > vwapAtual) then
+            begin
+                { Encerra a posição vendida a mercado (proteção) }
+                ClosePosition;
+
+                { Reseta o estado para a nova operação de compra }
+                bParcialFeita         := False;
+                bPararAdicionar       := False;
+                melhorPreco           := 0;
+                stopTrailing          := 0;
+                qtdRestantePosParcial := 0;
+
+                { Inicia compra na direção contrária com contrato padrão }
+                BuyAtMarket(qtdCtrPadrao);
+            end;
+
+            { ========================================================
+            BLOCO 2 — VERIFICAÇÃO DE PARCIAL
+            Se há posição aberta, resultado atingiu vlParcial e a
+            parcial ainda não foi feita: zera metade, bloqueia novas
+            adições e inicializa o trailing stop.
+            Este bloco só executa se a proteção VWAP acima NÃO
+            disparou (pois ClosePosition teria encerrado a posição).
+            ======================================================== }
+            if HasPosition and (not bParcialFeita) then
+            begin
+                if (resultadoAberto >= vlParcial) then
+                begin
+                    { Calcula metade da posição para zerar }
+                    qtdParaParcial := Abs(posicaoAtual) / 2;
+
+                    { Garante quantidade mínima de 1 lote }
+                    if qtdParaParcial < 1 then
+                        qtdParaParcial := 1;
+
+                    { Executa a parcial conforme a direção da posição }
+                    if IsBought then
+                        SellToCoverAtMarket(qtdParaParcial)
+                    else if IsSold then
+                        BuyToCoverAtMarket(qtdParaParcial);
+
+                    { Quantidade restante após a parcial para o trailing }
+                    qtdRestantePosParcial := Abs(posicaoAtual) - qtdParaParcial;
+                    if qtdRestantePosParcial < 1 then
+                        qtdRestantePosParcial := 1;
+
+                    { Inicializa o melhor preço com o fechamento atual,
+                    ponto de partida do trailing stop }
+                    melhorPreco := closeAtual;
+
+                    bParcialFeita   := True;
+                    bPararAdicionar := True;
+                end;
+            end;
+
+            { ========================================================
+            BLOCO 3 — TRAILING STOP APÓS PARCIAL
+            Só executa se a parcial foi feita e ainda há posição.
+            O stop avança conforme o preço se move a favor,
+            nunca recuando.
+            ======================================================== }
+
+            { --------------------------------------------------------
+            TRAILING STOP — POSIÇÃO COMPRADA
+            melhorPreco acompanha o maior fechamento desde a parcial.
+            Stop = melhorPreco - qtTrailingStop.
+            -------------------------------------------------------- }
+            if IsBought and bParcialFeita then
+            begin
+                { Atualiza o melhor preço se o fechamento atual superou }
+                if closeAtual > melhorPreco then
+                    melhorPreco := closeAtual;
+
+                { Recalcula o nível do trailing stop }
+                stopTrailing := melhorPreco - qtTrailingStop;
+
+                { Envia a ordem de stop de cobertura com a quantidade restante }
+                SellToCoverStop(stopTrailing, stopTrailing, qtdRestantePosParcial);
+            end;
+
+            { --------------------------------------------------------
+            TRAILING STOP — POSIÇÃO VENDIDA
+            melhorPreco acompanha o menor fechamento desde a parcial.
+            Stop = melhorPreco + qtTrailingStop.
+            -------------------------------------------------------- }
+            if IsSold and bParcialFeita then
+            begin
+                { Atualiza o melhor preço se o fechamento atual caiu abaixo }
+                if (melhorPreco = 0) or (closeAtual < melhorPreco) then
+                    melhorPreco := closeAtual;
+
+                { Recalcula o nível do trailing stop }
+                stopTrailing := melhorPreco + qtTrailingStop;
+
+                { Envia a ordem de stop de cobertura com a quantidade restante }
+                BuyToCoverStop(stopTrailing, stopTrailing, qtdRestantePosParcial);
+            end;
+
+            { ========================================================
+            BLOCO 4 — ENTRADAS INICIAIS (SEM POSIÇÃO ABERTA)
+            Só executa quando não há posição aberta.
+            Cruzamento do fechamento em relação ao VWAP.
+            ======================================================== }
+
+            { --------------------------------------------------------
+            ENTRADA COMPRA
+            Condição: candle anterior fechou ABAIXO do VWAP
+            E candle atual fechou ACIMA do VWAP.
+            -------------------------------------------------------- }
+            if (not HasPosition) and
+            (closeAnterior < vwapAtual) and
+            (closeAtual > vwapAtual) then
+                BuyAtMarket(qtdCtrPadrao);
+
+            { --------------------------------------------------------
+            ENTRADA VENDA
+            Condição: candle anterior fechou ACIMA do VWAP
+            E candle atual fechou ABAIXO do VWAP.
+            -------------------------------------------------------- }
+            if (not HasPosition) and
+            (closeAnterior > vwapAtual) and
+            (closeAtual < vwapAtual) then
+                SellShortAtMarket(qtdCtrPadrao);
+
+            { ========================================================
+            BLOCO 5 — PIRÂMIDE (ADIÇÃO DE CONTRATOS)
+            A cada candle favorável, adiciona qtdCtrPadrao contratos
+        até o limite qtdMaxCtr, desde que a parcial não tenha
+        sido feita (bPararAdicionar = False).
+        ======================================================== }
+
+        { --------------------------------------------------------
+        PIRÂMIDE COMPRA
+        Condição: comprado, fechou ACIMA do VWAP, parcial não
+        feita e posição abaixo do máximo permitido.
+        -------------------------------------------------------- }
+        if IsBought and (not bPararAdicionar) and
+        (closeAtual > vwapAtual) then
+        begin
+            if (posicaoAtual + qtdCtrPadrao) <= qtdMaxCtr then
+            begin
+                    { Há espaço para adicionar a quantidade padrão }
+                qtdParaAdicionar := qtdCtrPadrao;
+                BuyAtMarket(qtdParaAdicionar);
+            end
+            else if (posicaoAtual < qtdMaxCtr) then
+            begin
+                    { Adiciona apenas o restante até o máximo }
+                qtdParaAdicionar := qtdMaxCtr - posicaoAtual;
+                BuyAtMarket(qtdParaAdicionar);
+            end;
+        end;
+
+        { --------------------------------------------------------
+        PIRÂMIDE VENDA
+        Condição: vendido, fechou ABAIXO do VWAP, parcial não
+        feita e posição abaixo do máximo permitido.
+        -------------------------------------------------------- }
+        if IsSold and (not bPararAdicionar) and
+        (closeAtual < vwapAtual) then
+        begin
+            if (Abs(posicaoAtual) + qtdCtrPadrao) <= qtdMaxCtr then
+            begin
+                    { Há espaço para adicionar a quantidade padrão }
+                qtdParaAdicionar := qtdCtrPadrao;
+                SellShortAtMarket(qtdParaAdicionar);
+            end
+            else if (Abs(posicaoAtual) < qtdMaxCtr) then
+            begin
+                    { Adiciona apenas o restante até o máximo }
+                qtdParaAdicionar := qtdMaxCtr - Abs(posicaoAtual);
+                SellShortAtMarket(qtdParaAdicionar);
+            end;
+        end;
+
+    end; { fim do bloco "dentro do horário" }
+
+end; { fim do bloco "not bEncerrado" }
+
+
+
+end;
