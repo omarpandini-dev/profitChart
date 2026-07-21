@@ -1,0 +1,110 @@
+// Estrategia: Exaustao Scalp V1
+// Ideia:
+// - Operar contra movimentos muito esticados em alta volatilidade.
+// - Entrada contra a tendencia apenas apos excesso estatistico.
+// - Alvo curto por ATR.
+// - Stop mais longo por ATR.
+// - Saida por tempo caso o scalp nao ande rapido.
+
+input
+  HoraInicio(900);
+  HoraFimEntradas(1700);
+  HoraZeragem(1740);
+
+  PeriodoBB(20);
+  DesvioBB(2.0);
+
+  PeriodoATR(14);
+  PeriodoMediaATR(20);
+  MultiplicadorExcessoATR(1.5);
+  MultiplicadorAlvoATR(0.35);
+  MultiplicadorStopATR(1.1);
+
+  MaxCandlesOperacao(5);
+
+var
+  mediaBB       : Float;
+  bandaSuperior : Float;
+  bandaInferior : Float;
+  atrValor      : Float;
+  mediaATR      : Float;
+  distanciaMedia: Float;
+  alvoCompra    : Float;
+  stopCompra    : Float;
+  alvoVenda     : Float;
+  stopVenda     : Float;
+  barraEntrada  : Integer;
+  volatilidadeAlta : Boolean;
+  podeOperar    : Boolean;
+  excessoAlta   : Boolean;
+  excessoBaixa  : Boolean;
+
+begin
+  mediaBB := Media(PeriodoBB, Close);
+  bandaSuperior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|0|;
+  bandaInferior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|1|;
+
+  atrValor := AvgTrueRange(PeriodoATR);
+  mediaATR := Media(PeriodoMediaATR, atrValor);
+  distanciaMedia := Abs(Close - mediaBB);
+
+  volatilidadeAlta := atrValor > mediaATR;
+
+  podeOperar :=
+    (Time >= HoraInicio) and
+    (Time <= HoraFimEntradas) and
+    volatilidadeAlta;
+
+  excessoAlta :=
+    (Close > bandaSuperior) and
+    (distanciaMedia >= atrValor * MultiplicadorExcessoATR);
+
+  excessoBaixa :=
+    (Close < bandaInferior) and
+    (distanciaMedia >= atrValor * MultiplicadorExcessoATR);
+
+  // Entrada contra o excesso: vende exagero para cima e compra exagero para baixo.
+  if (not HasPosition) and podeOperar then
+  begin
+    if excessoAlta then
+    begin
+      SellShortAtMarket;
+      barraEntrada := CurrentBar;
+    end
+    else if excessoBaixa then
+    begin
+      BuyAtMarket;
+      barraEntrada := CurrentBar;
+    end;
+  end;
+
+  // Compra contra queda: alvo curto e stop mais longo.
+  if IsBought then
+  begin
+    alvoCompra := BuyPrice + (atrValor * MultiplicadorAlvoATR);
+    stopCompra := BuyPrice - (atrValor * MultiplicadorStopATR);
+
+    SellToCoverLimit(alvoCompra);
+    SellToCoverStop(stopCompra, stopCompra);
+
+    if (CurrentBar - barraEntrada) >= MaxCandlesOperacao then
+      ClosePosition;
+  end;
+
+  // Venda contra alta: alvo curto e stop mais longo.
+  if IsSold then
+  begin
+    alvoVenda := SellPrice - (atrValor * MultiplicadorAlvoATR);
+    stopVenda := SellPrice + (atrValor * MultiplicadorStopATR);
+
+    BuyToCoverLimit(alvoVenda);
+    BuyToCoverStop(stopVenda, stopVenda);
+
+    if (CurrentBar - barraEntrada) >= MaxCandlesOperacao then
+      ClosePosition;
+  end;
+
+  // Zeragem obrigatoria no fim do dia.
+  if (Time >= HoraZeragem) and HasPosition then
+    ClosePosition;
+end;

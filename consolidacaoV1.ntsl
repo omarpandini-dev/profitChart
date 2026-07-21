@@ -1,0 +1,89 @@
+// Estrategia: Consolidacao V1
+// Ideia:
+// - Operar somente em consolidacao.
+// - Entrada agressiva no toque das Bandas de Bollinger.
+// - Saida total na media de 20.
+// - Filtro de ADX baixo e media de 20 lateral.
+// - Stop por ATR.
+
+input
+  HoraInicio(1300);
+  HoraFimEntradas(1630);
+  HoraZeragem(1740);
+
+  PeriodoBB(20);
+  DesvioBB(2.0);
+
+  PeriodoADX(14);
+  MediaADX(14);
+  ADXMaximo(20.0);
+
+  PeriodoATR(14);
+  MultiplicadorATR(1.5);
+
+  PeriodoInclMedia(5);
+  LimiteInclMedia(60.0);
+
+var
+  mediaBB       : Float;
+  bandaSuperior : Float;
+  bandaInferior : Float;
+  adxValor      : Float;
+  atrValor      : Float;
+  inclinacao    : Float;
+  podeOperar    : Boolean;
+  tocouSuperior : Boolean;
+  tocouInferior : Boolean;
+  stopCompra    : Float;
+  stopVenda     : Float;
+
+begin
+  mediaBB := Media(PeriodoBB, Close);
+  bandaSuperior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|0|;
+  bandaInferior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|1|;
+
+  adxValor := ADX(PeriodoADX, MediaADX);
+  atrValor := AvgTrueRange(PeriodoATR);
+  inclinacao := Abs(mediaBB - mediaBB[PeriodoInclMedia]);
+
+  podeOperar :=
+    (Time >= HoraInicio) and
+    (Time <= HoraFimEntradas) and
+    (adxValor <= ADXMaximo) and
+    (inclinacao <= LimiteInclMedia);
+
+  tocouSuperior := High >= bandaSuperior;
+  tocouInferior := Low <= bandaInferior;
+
+  // Entradas: sempre no toque da banda, desde que os filtros estejam validos.
+  if (not HasPosition) and podeOperar then
+  begin
+    // Se tocar as duas bandas no mesmo candle, evita entrada ambigua.
+    if tocouSuperior and (not tocouInferior) then
+      SellShortAtMarket
+    else if tocouInferior and (not tocouSuperior) then
+      BuyAtMarket;
+  end;
+
+  // Gestao da posicao comprada: alvo na media de 20 e stop por ATR.
+  if IsBought then
+  begin
+    stopCompra := BuyPrice - (atrValor * MultiplicadorATR);
+
+    SellToCoverLimit(mediaBB);
+    SellToCoverStop(stopCompra, stopCompra);
+  end;
+
+  // Gestao da posicao vendida: alvo na media de 20 e stop por ATR.
+  if IsSold then
+  begin
+    stopVenda := SellPrice + (atrValor * MultiplicadorATR);
+
+    BuyToCoverLimit(mediaBB);
+    BuyToCoverStop(stopVenda, stopVenda);
+  end;
+
+  // Zeragem obrigatoria no fim do dia.
+  if (Time >= HoraZeragem) and HasPosition then
+    ClosePosition;
+end;

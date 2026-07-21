@@ -1,0 +1,120 @@
+// Estrategia: Exaustao Pavio V1
+// Ideia:
+// - Operar contra excesso em alta volatilidade.
+// - Entrada somente quando houver pavio de rejeicao relevante.
+// - Alvo curto por ATR.
+// - Stop mais longo por ATR.
+// - Saida por tempo caso o scalp nao ande rapido.
+
+input
+  HoraInicio(900);
+  HoraFimEntradas(1700);
+  HoraZeragem(1740);
+
+  PeriodoBB(20);
+  DesvioBB(2.0);
+
+  PeriodoATR(14);
+  PeriodoMediaATR(20);
+  MultiplicadorAlvoATR(0.35);
+  MultiplicadorStopATR(1.1);
+
+  MinPavioCorpo(1.0);
+  MaxCorpoATR(1.2);
+  MaxCandlesOperacao(5);
+
+var
+  mediaBB       : Float;
+  bandaSuperior : Float;
+  bandaInferior : Float;
+  atrValor      : Float;
+  mediaATR      : Float;
+  corpo         : Float;
+  pavioSuperior : Float;
+  pavioInferior : Float;
+  alvoCompra    : Float;
+  stopCompra    : Float;
+  alvoVenda     : Float;
+  stopVenda     : Float;
+  barraEntrada  : Integer;
+  volatilidadeAlta : Boolean;
+  podeOperar    : Boolean;
+  rejeicaoAlta  : Boolean;
+  rejeicaoBaixa : Boolean;
+
+begin
+  mediaBB := Media(PeriodoBB, Close);
+  bandaSuperior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|0|;
+  bandaInferior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|1|;
+
+  atrValor := AvgTrueRange(PeriodoATR);
+  mediaATR := Media(PeriodoMediaATR, atrValor);
+
+  corpo := Abs(Close - Open);
+  pavioSuperior := High - Max(Open, Close);
+  pavioInferior := Min(Open, Close) - Low;
+
+  volatilidadeAlta := atrValor > mediaATR;
+
+  podeOperar :=
+    (Time >= HoraInicio) and
+    (Time <= HoraFimEntradas) and
+    volatilidadeAlta and
+    (corpo <= atrValor * MaxCorpoATR);
+
+  // Venda: rompe/toca a banda superior e deixa pavio superior relevante.
+  rejeicaoAlta :=
+    (High >= bandaSuperior) and
+    (pavioSuperior >= corpo * MinPavioCorpo) and
+    (Close < High);
+
+  // Compra: rompe/toca a banda inferior e deixa pavio inferior relevante.
+  rejeicaoBaixa :=
+    (Low <= bandaInferior) and
+    (pavioInferior >= corpo * MinPavioCorpo) and
+    (Close > Low);
+
+  if (not HasPosition) and podeOperar then
+  begin
+    if rejeicaoAlta then
+    begin
+      SellShortAtMarket;
+      barraEntrada := CurrentBar;
+    end
+    else if rejeicaoBaixa then
+    begin
+      BuyAtMarket;
+      barraEntrada := CurrentBar;
+    end;
+  end;
+
+  // Compra contra queda: alvo curto e stop mais longo.
+  if IsBought then
+  begin
+    alvoCompra := BuyPrice + (atrValor * MultiplicadorAlvoATR);
+    stopCompra := BuyPrice - (atrValor * MultiplicadorStopATR);
+
+    SellToCoverLimit(alvoCompra);
+    SellToCoverStop(stopCompra, stopCompra);
+
+    if (CurrentBar - barraEntrada) >= MaxCandlesOperacao then
+      ClosePosition;
+  end;
+
+  // Venda contra alta: alvo curto e stop mais longo.
+  if IsSold then
+  begin
+    alvoVenda := SellPrice - (atrValor * MultiplicadorAlvoATR);
+    stopVenda := SellPrice + (atrValor * MultiplicadorStopATR);
+
+    BuyToCoverLimit(alvoVenda);
+    BuyToCoverStop(stopVenda, stopVenda);
+
+    if (CurrentBar - barraEntrada) >= MaxCandlesOperacao then
+      ClosePosition;
+  end;
+
+  // Zeragem obrigatoria no fim do dia.
+  if (Time >= HoraZeragem) and HasPosition then
+    ClosePosition;
+end;

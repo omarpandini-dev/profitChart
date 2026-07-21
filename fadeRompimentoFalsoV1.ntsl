@@ -1,0 +1,118 @@
+// Estrategia: Fade Rompimento Falso V1
+// Ideia:
+// - Operar contra rompimentos falsos em alta volatilidade.
+// - Venda quando rompe maxima recente, mas fecha de volta abaixo da maxima anterior.
+// - Compra quando rompe minima recente, mas fecha de volta acima da minima anterior.
+// - Alvo curto por ATR.
+// - Stop mais longo por ATR.
+// - Saida por tempo caso o scalp nao ande rapido.
+
+input
+  HoraInicio(900);
+  HoraFimEntradas(1700);
+  HoraZeragem(1740);
+
+  PeriodoRompimento(5);
+
+  PeriodoBB(20);
+  DesvioBB(2.0);
+
+  PeriodoATR(14);
+  PeriodoMediaATR(20);
+  MultiplicadorAlvoATR(0.35);
+  MultiplicadorStopATR(1.1);
+
+  MaxCandlesOperacao(5);
+
+var
+  mediaBB       : Float;
+  bandaSuperior : Float;
+  bandaInferior : Float;
+  atrValor      : Float;
+  mediaATR      : Float;
+  maximaAnterior: Float;
+  minimaAnterior: Float;
+  alvoCompra    : Float;
+  stopCompra    : Float;
+  alvoVenda     : Float;
+  stopVenda     : Float;
+  barraEntrada  : Integer;
+  volatilidadeAlta : Boolean;
+  podeOperar    : Boolean;
+  falsoRompAlta : Boolean;
+  falsoRompBaixa: Boolean;
+
+begin
+  mediaBB := Media(PeriodoBB, Close);
+  bandaSuperior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|0|;
+  bandaInferior := BollingerBands(DesvioBB, PeriodoBB, kaArithmetic)|1|;
+
+  atrValor := AvgTrueRange(PeriodoATR);
+  mediaATR := Media(PeriodoMediaATR, atrValor);
+
+  maximaAnterior := Highest(High, PeriodoRompimento)[1];
+  minimaAnterior := Lowest(Low, PeriodoRompimento)[1];
+
+  volatilidadeAlta := atrValor > mediaATR;
+
+  podeOperar :=
+    (Time >= HoraInicio) and
+    (Time <= HoraFimEntradas) and
+    volatilidadeAlta;
+
+  // Armadilha de compra: rompe maxima recente e fecha de volta abaixo dela.
+  falsoRompAlta :=
+    (High > maximaAnterior) and
+    (Close < maximaAnterior) and
+    (High >= bandaSuperior);
+
+  // Armadilha de venda: rompe minima recente e fecha de volta acima dela.
+  falsoRompBaixa :=
+    (Low < minimaAnterior) and
+    (Close > minimaAnterior) and
+    (Low <= bandaInferior);
+
+  if (not HasPosition) and podeOperar then
+  begin
+    if falsoRompAlta then
+    begin
+      SellShortAtMarket;
+      barraEntrada := CurrentBar;
+    end
+    else if falsoRompBaixa then
+    begin
+      BuyAtMarket;
+      barraEntrada := CurrentBar;
+    end;
+  end;
+
+  // Compra contra falso rompimento de baixa.
+  if IsBought then
+  begin
+    alvoCompra := BuyPrice + (atrValor * MultiplicadorAlvoATR);
+    stopCompra := BuyPrice - (atrValor * MultiplicadorStopATR);
+
+    SellToCoverLimit(alvoCompra);
+    SellToCoverStop(stopCompra, stopCompra);
+
+    if (CurrentBar - barraEntrada) >= MaxCandlesOperacao then
+      ClosePosition;
+  end;
+
+  // Venda contra falso rompimento de alta.
+  if IsSold then
+  begin
+    alvoVenda := SellPrice - (atrValor * MultiplicadorAlvoATR);
+    stopVenda := SellPrice + (atrValor * MultiplicadorStopATR);
+
+    BuyToCoverLimit(alvoVenda);
+    BuyToCoverStop(stopVenda, stopVenda);
+
+    if (CurrentBar - barraEntrada) >= MaxCandlesOperacao then
+      ClosePosition;
+  end;
+
+  // Zeragem obrigatoria no fim do dia.
+  if (Time >= HoraZeragem) and HasPosition then
+    ClosePosition;
+end;
