@@ -29,6 +29,8 @@ var
   vendaForteWdo        : Boolean;
   barraForteWin        : Boolean;
   barraForteWdo        : Boolean;
+  candleCompraWin      : Boolean;
+  candleVendaWin       : Boolean;
   sinalCompra          : Boolean;
   sinalVenda           : Boolean;
 
@@ -57,9 +59,11 @@ begin
   vendaForteWdo := volumeVendaWdo >= (mediaVendaWdo * FatorVolume);
   barraForteWin := rangeWin >= (atrWin * FatorATR);
   barraForteWdo := rangeWdo >= (atrWdo * FatorATR);
+  candleCompraWin := Close > Open;
+  candleVendaWin := Close < Open;
 
-  sinalCompra := compraForteWin and vendaForteWdo and barraForteWin and barraForteWdo;
-  sinalVenda := vendaForteWin and compraForteWdo and barraForteWin and barraForteWdo;
+  sinalCompra := compraForteWin and vendaForteWdo and barraForteWin and barraForteWdo and candleCompraWin;
+  sinalVenda := vendaForteWin and compraForteWdo and barraForteWin and barraForteWdo and candleVendaWin;
 
   if sinalCompra then
     PaintBar(clGreen);
