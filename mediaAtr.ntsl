@@ -1,0 +1,71 @@
+input
+  PeriodoATR(100);
+  TipoMediaATR(2);
+  JanelaBusca(100);
+  QuantidadeMaiores(10);
+
+var
+  indiceAtual      : Integer;
+  indiceComparacao : Integer;
+  qtdMaiores       : Integer;
+  qtdUsada         : Integer;
+  atrAtual         : Float;
+  atrComparacao    : Float;
+  somaMaiores      : Float;
+  mediaMaiores     : Float;
+
+begin
+  { Reinicia os acumuladores a cada candle. }
+  somaMaiores := 0;
+  qtdUsada := 0;
+
+  { Garante que a quantidade de maiores nao passe do tamanho da janela. }
+  if QuantidadeMaiores > JanelaBusca then
+    qtdMaiores := JanelaBusca
+  else
+    qtdMaiores := QuantidadeMaiores;
+
+  { Evita divisao por zero caso o input venha menor que 1. }
+  if qtdMaiores < 1 then
+    qtdMaiores := 1;
+
+  { Aguarda existir historico suficiente para calcular o ATR e percorrer a janela. }
+  if CurrentBar >= (PeriodoATR + JanelaBusca) then
+  begin
+    { Percorre cada ATR dentro da janela de busca. }
+    for indiceAtual := 0 to JanelaBusca - 1 do
+    begin
+      atrAtual := AvgTrueRange(PeriodoATR, TipoMediaATR)[indiceAtual];
+
+      { qtdUsada representa a posicao do atrAtual no ranking dos maiores ATRs. }
+      qtdUsada := 1;
+
+      { Compara o atrAtual com todos os outros ATRs da janela. }
+      for indiceComparacao := 0 to JanelaBusca - 1 do
+      begin
+        atrComparacao := AvgTrueRange(PeriodoATR, TipoMediaATR)[indiceComparacao];
+
+        { Cada ATR maior empurra o atrAtual uma posicao para baixo no ranking. }
+        if atrComparacao > atrAtual then
+          qtdUsada := qtdUsada + 1;
+
+        { Em caso de empate, usa o indice como criterio para nao contar duplicado. }
+        if (atrComparacao = atrAtual) and (indiceComparacao < indiceAtual) then
+          qtdUsada := qtdUsada + 1;
+      end;
+
+      { Se o atrAtual ficou entre os N maiores, entra na soma da media. }
+      if qtdUsada <= qtdMaiores then
+      begin
+        somaMaiores := somaMaiores + atrAtual;
+      end;
+    end;
+
+    { Media somente dos maiores ATRs selecionados. }
+    mediaMaiores := somaMaiores / qtdMaiores;
+
+    { Plot principal: media dos N maiores ATRs. Plot2: ATR atual para comparacao. }
+    Plot(mediaMaiores);
+    Plot2(AvgTrueRange(PeriodoATR, TipoMediaATR));
+  end;
+end;

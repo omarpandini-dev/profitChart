@@ -1,0 +1,69 @@
+const
+  WDO = Asset("WDOFUT", feedBMF, itMinute, 1);
+
+  {VALE3 = Asset("VALE3", feedBovespa);}
+
+input
+  PeriodoMediaVolume(20);
+  FatorVolume(2.00);
+  PeriodoATR(14);
+  TipoMediaATR(0);
+  FatorATR(1.00);
+
+var
+  volumeCompraWin      : Float;
+  volumeVendaWin       : Float;
+  mediaCompraWin       : Float;
+  mediaVendaWin        : Float;
+  volumeCompraWdo      : Float;
+  volumeVendaWdo       : Float;
+  mediaCompraWdo       : Float;
+  mediaVendaWdo        : Float;
+  rangeWin             : Float;
+  rangeWdo             : Float;
+  atrWin               : Float;
+  atrWdo               : Float;
+  compraForteWin       : Boolean;
+  vendaForteWin        : Boolean;
+  compraForteWdo       : Boolean;
+  vendaForteWdo        : Boolean;
+  barraForteWin        : Boolean;
+  barraForteWdo        : Boolean;
+  sinalCompra          : Boolean;
+  sinalVenda           : Boolean;
+
+begin
+  { Volume agressor no ativo da tela, esperado como WIN. }
+  volumeCompraWin := AgressionVolBuy;
+  volumeVendaWin := AgressionVolSell;
+  mediaCompraWin := Media(PeriodoMediaVolume, AgressionVolBuy);
+  mediaVendaWin := Media(PeriodoMediaVolume, AgressionVolSell);
+
+  { Volume agressor no mini dolar consultado via Asset. }
+  volumeCompraWdo := WDO.AgressionVolBuy;
+  volumeVendaWdo := WDO.AgressionVolSell;
+  mediaCompraWdo := Media(PeriodoMediaVolume, WDO.AgressionVolBuy);
+  mediaVendaWdo := Media(PeriodoMediaVolume, WDO.AgressionVolSell);
+
+  { Filtro de barra forte: amplitude da barra precisa superar o ATR. }
+  rangeWin := High - Low;
+  rangeWdo := WDO.high - WDO.low;
+  atrWin := AvgTrueRange(PeriodoATR, TipoMediaATR);
+  atrWdo := WDO.AvgTrueRange(PeriodoATR, TipoMediaATR);
+
+  compraForteWin := volumeCompraWin >= (mediaCompraWin * FatorVolume);
+  vendaForteWin := volumeVendaWin >= (mediaVendaWin * FatorVolume);
+  compraForteWdo := volumeCompraWdo >= (mediaCompraWdo * FatorVolume);
+  vendaForteWdo := volumeVendaWdo >= (mediaVendaWdo * FatorVolume);
+  barraForteWin := rangeWin >= (atrWin * FatorATR);
+  barraForteWdo := rangeWdo >= (atrWdo * FatorATR);
+
+  sinalCompra := compraForteWin and vendaForteWdo and barraForteWin and barraForteWdo;
+  sinalVenda := vendaForteWin and compraForteWdo and barraForteWin and barraForteWdo;
+
+  if sinalCompra then
+    PaintBar(clGreen);
+
+  if sinalVenda then
+    PaintBar(clRed);
+end;
