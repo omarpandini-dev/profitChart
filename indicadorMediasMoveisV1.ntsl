@@ -1,0 +1,42 @@
+input
+  PeriodoMedia(20);
+  QuantidadeLinhas(3);
+  TipoDistancia(0);
+  DistanciaPontos(100);
+  PeriodoATR(14);
+  TipoMediaATR(2);
+  MultiplicadorATR(1.00);
+
+var
+  mediaMovel    : Float;
+  distanciaBase : Float;
+  qtdLinhas     : Integer;
+  linha         : Integer;
+
+begin
+  mediaMovel := Media(PeriodoMedia, Close);
+
+  qtdLinhas := QuantidadeLinhas;
+
+  if qtdLinhas < 0 then
+    qtdLinhas := 0;
+
+  if qtdLinhas > 49 then
+    qtdLinhas := 49;
+
+  if TipoDistancia = 1 then
+    distanciaBase := AvgTrueRange(PeriodoATR, TipoMediaATR) * MultiplicadorATR
+  else
+    distanciaBase := DistanciaPontos;
+
+  PlotN(1, mediaMovel);
+
+  if qtdLinhas > 0 then
+  begin
+    for linha := 1 to qtdLinhas do
+    begin
+      PlotN(linha + 1, mediaMovel + (distanciaBase * linha));
+      PlotN(linha + 50, mediaMovel - (distanciaBase * linha));
+    end;
+  end;
+end;
