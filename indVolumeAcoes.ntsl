@@ -1,0 +1,308 @@
+const
+  VALE3 = Asset("VALE3", feedBovespa);
+  GGBR4 = Asset("GGBR4", feedBovespa);
+  CSNA3 = Asset("CSNA3", feedBovespa);
+  USIM5 = Asset("USIM5", feedBovespa);
+  PETR4 = Asset("PETR4", feedBovespa);
+  PETR3 = Asset("PETR3", feedBovespa);
+  ITUB4 = Asset("ITUB4", feedBovespa);
+  BBAS3 = Asset("BBAS3", feedBovespa);
+  BBDC4 = Asset("BBDC4", feedBovespa);
+  BPAC11 = Asset("BPAC11", feedBovespa);
+  SANB11 = Asset("SANB11", feedBovespa);
+  WEGE3 = Asset("WEGE3", feedBovespa);
+  EMBR3 = Asset("EMBR3", feedBovespa);
+
+input
+  PeriodoMediaVolume(20);
+  PeriodoATR(20);
+  TipoMediaATR(0);
+  FatorVolume(2.00);
+  FatorBarraATR(2.00);
+
+var
+  volumeVale      : Float;
+  mediaVolumeVale : Float;
+  atrVale         : Float;
+  vwapVale        : Float;
+  tamanhoBarraVale: Float;
+  volumeAcimaMedia: Boolean;
+  barraAcimaATR   : Boolean;
+  sinalVolumeBarra: Boolean;
+  volumeGgbr      : Float;
+  mediaVolumeGgbr : Float;
+  atrGgbr         : Float;
+  vwapGgbr        : Float;
+  tamanhoBarraGgbr: Float;
+  volumeGgbrAcimaMedia: Boolean;
+  barraGgbrAcimaATR   : Boolean;
+  sinalGgbrVolumeBarra: Boolean;
+  volumeCsna      : Float;
+  mediaVolumeCsna : Float;
+  atrCsna         : Float;
+  vwapCsna        : Float;
+  tamanhoBarraCsna: Float;
+  volumeCsnaAcimaMedia: Boolean;
+  barraCsnaAcimaATR   : Boolean;
+  sinalCsnaVolumeBarra: Boolean;
+  volumeUsim      : Float;
+  mediaVolumeUsim : Float;
+  atrUsim         : Float;
+  vwapUsim        : Float;
+  tamanhoBarraUsim: Float;
+  volumeUsimAcimaMedia: Boolean;
+  barraUsimAcimaATR   : Boolean;
+  sinalUsimVolumeBarra: Boolean;
+  idMineracaoCompra   : Boolean;
+  idMineracaoVenda    : Boolean;
+  volumePetr4      : Float;
+  mediaVolumePetr4 : Float;
+  atrPetr4         : Float;
+  vwapPetr4        : Float;
+  tamanhoBarraPetr4: Float;
+  volumePetr4AcimaMedia: Boolean;
+  barraPetr4AcimaATR   : Boolean;
+  sinalPetr4VolumeBarra: Boolean;
+  volumePetr3      : Float;
+  mediaVolumePetr3 : Float;
+  atrPetr3         : Float;
+  vwapPetr3        : Float;
+  tamanhoBarraPetr3: Float;
+  volumePetr3AcimaMedia: Boolean;
+  barraPetr3AcimaATR   : Boolean;
+  sinalPetr3VolumeBarra: Boolean;
+  idPetroleoCompra     : Boolean;
+  idPetroleoVenda      : Boolean;
+  volumeItub      : Float;
+  mediaVolumeItub : Float;
+  atrItub         : Float;
+  vwapItub        : Float;
+  tamanhoBarraItub: Float;
+  volumeItubAcimaMedia: Boolean;
+  barraItubAcimaATR   : Boolean;
+  sinalItubVolumeBarra: Boolean;
+  volumeBbas      : Float;
+  mediaVolumeBbas : Float;
+  atrBbas         : Float;
+  vwapBbas        : Float;
+  tamanhoBarraBbas: Float;
+  volumeBbasAcimaMedia: Boolean;
+  barraBbasAcimaATR   : Boolean;
+  sinalBbasVolumeBarra: Boolean;
+  volumeBbdc      : Float;
+  mediaVolumeBbdc : Float;
+  atrBbdc         : Float;
+  vwapBbdc        : Float;
+  tamanhoBarraBbdc: Float;
+  volumeBbdcAcimaMedia: Boolean;
+  barraBbdcAcimaATR   : Boolean;
+  sinalBbdcVolumeBarra: Boolean;
+  volumeBpac      : Float;
+  mediaVolumeBpac : Float;
+  atrBpac         : Float;
+  vwapBpac        : Float;
+  tamanhoBarraBpac: Float;
+  volumeBpacAcimaMedia: Boolean;
+  barraBpacAcimaATR   : Boolean;
+  sinalBpacVolumeBarra: Boolean;
+  volumeSanb      : Float;
+  mediaVolumeSanb : Float;
+  atrSanb         : Float;
+  vwapSanb        : Float;
+  tamanhoBarraSanb: Float;
+  volumeSanbAcimaMedia: Boolean;
+  barraSanbAcimaATR   : Boolean;
+  sinalSanbVolumeBarra: Boolean;
+  idBancosCompra       : Boolean;
+  idBancosVenda        : Boolean;
+  volumeWege      : Float;
+  mediaVolumeWege : Float;
+  atrWege         : Float;
+  vwapWege        : Float;
+  tamanhoBarraWege: Float;
+  volumeWegeAcimaMedia: Boolean;
+  barraWegeAcimaATR   : Boolean;
+  sinalWegeVolumeBarra: Boolean;
+  volumeEmbr      : Float;
+  mediaVolumeEmbr : Float;
+  atrEmbr         : Float;
+  vwapEmbr        : Float;
+  tamanhoBarraEmbr: Float;
+  volumeEmbrAcimaMedia: Boolean;
+  barraEmbrAcimaATR   : Boolean;
+  sinalEmbrVolumeBarra: Boolean;
+  idIndustriaCompra   : Boolean;
+  idIndustriaVenda    : Boolean;
+
+begin
+  volumeVale := VALE3.Volume;
+  mediaVolumeVale := Media(PeriodoMediaVolume, VALE3.Volume);
+  atrVale := VALE3.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapVale := VALE3.VWAP(1);
+  tamanhoBarraVale := VALE3.High - VALE3.Low;
+  volumeGgbr := GGBR4.Volume;
+  mediaVolumeGgbr := Media(PeriodoMediaVolume, GGBR4.Volume);
+  atrGgbr := GGBR4.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapGgbr := GGBR4.VWAP(1);
+  tamanhoBarraGgbr := GGBR4.High - GGBR4.Low;
+  volumeCsna := CSNA3.Volume;
+  mediaVolumeCsna := Media(PeriodoMediaVolume, CSNA3.Volume);
+  atrCsna := CSNA3.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapCsna := CSNA3.VWAP(1);
+  tamanhoBarraCsna := CSNA3.High - CSNA3.Low;
+  volumeUsim := USIM5.Volume;
+  mediaVolumeUsim := Media(PeriodoMediaVolume, USIM5.Volume);
+  atrUsim := USIM5.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapUsim := USIM5.VWAP(1);
+  tamanhoBarraUsim := USIM5.High - USIM5.Low;
+  volumePetr4 := PETR4.Volume;
+  mediaVolumePetr4 := Media(PeriodoMediaVolume, PETR4.Volume);
+  atrPetr4 := PETR4.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapPetr4 := PETR4.VWAP(1);
+  tamanhoBarraPetr4 := PETR4.High - PETR4.Low;
+  volumePetr3 := PETR3.Volume;
+  mediaVolumePetr3 := Media(PeriodoMediaVolume, PETR3.Volume);
+  atrPetr3 := PETR3.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapPetr3 := PETR3.VWAP(1);
+  tamanhoBarraPetr3 := PETR3.High - PETR3.Low;
+  volumeItub := ITUB4.Volume;
+  mediaVolumeItub := Media(PeriodoMediaVolume, ITUB4.Volume);
+  atrItub := ITUB4.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapItub := ITUB4.VWAP(1);
+  tamanhoBarraItub := ITUB4.High - ITUB4.Low;
+  volumeBbas := BBAS3.Volume;
+  mediaVolumeBbas := Media(PeriodoMediaVolume, BBAS3.Volume);
+  atrBbas := BBAS3.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapBbas := BBAS3.VWAP(1);
+  tamanhoBarraBbas := BBAS3.High - BBAS3.Low;
+  volumeBbdc := BBDC4.Volume;
+  mediaVolumeBbdc := Media(PeriodoMediaVolume, BBDC4.Volume);
+  atrBbdc := BBDC4.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapBbdc := BBDC4.VWAP(1);
+  tamanhoBarraBbdc := BBDC4.High - BBDC4.Low;
+  volumeBpac := BPAC11.Volume;
+  mediaVolumeBpac := Media(PeriodoMediaVolume, BPAC11.Volume);
+  atrBpac := BPAC11.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapBpac := BPAC11.VWAP(1);
+  tamanhoBarraBpac := BPAC11.High - BPAC11.Low;
+  volumeSanb := SANB11.Volume;
+  mediaVolumeSanb := Media(PeriodoMediaVolume, SANB11.Volume);
+  atrSanb := SANB11.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapSanb := SANB11.VWAP(1);
+  tamanhoBarraSanb := SANB11.High - SANB11.Low;
+  volumeWege := WEGE3.Volume;
+  mediaVolumeWege := Media(PeriodoMediaVolume, WEGE3.Volume);
+  atrWege := WEGE3.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapWege := WEGE3.VWAP(1);
+  tamanhoBarraWege := WEGE3.High - WEGE3.Low;
+  volumeEmbr := EMBR3.Volume;
+  mediaVolumeEmbr := Media(PeriodoMediaVolume, EMBR3.Volume);
+  atrEmbr := EMBR3.AvgTrueRange(PeriodoATR, TipoMediaATR);
+  vwapEmbr := EMBR3.VWAP(1);
+  tamanhoBarraEmbr := EMBR3.High - EMBR3.Low;
+
+  volumeAcimaMedia := volumeVale >= (mediaVolumeVale * FatorVolume);
+  barraAcimaATR := tamanhoBarraVale >= (atrVale * FatorBarraATR);
+  sinalVolumeBarra := volumeAcimaMedia and barraAcimaATR;
+  volumeGgbrAcimaMedia := volumeGgbr >= (mediaVolumeGgbr * FatorVolume);
+  barraGgbrAcimaATR := tamanhoBarraGgbr >= (atrGgbr * FatorBarraATR);
+  sinalGgbrVolumeBarra := volumeGgbrAcimaMedia and barraGgbrAcimaATR;
+  volumeCsnaAcimaMedia := volumeCsna >= (mediaVolumeCsna * FatorVolume);
+  barraCsnaAcimaATR := tamanhoBarraCsna >= (atrCsna * FatorBarraATR);
+  sinalCsnaVolumeBarra := volumeCsnaAcimaMedia and barraCsnaAcimaATR;
+  volumeUsimAcimaMedia := volumeUsim >= (mediaVolumeUsim * FatorVolume);
+  barraUsimAcimaATR := tamanhoBarraUsim >= (atrUsim * FatorBarraATR);
+  sinalUsimVolumeBarra := volumeUsimAcimaMedia and barraUsimAcimaATR;
+  volumePetr4AcimaMedia := volumePetr4 >= (mediaVolumePetr4 * FatorVolume);
+  barraPetr4AcimaATR := tamanhoBarraPetr4 >= (atrPetr4 * FatorBarraATR);
+  sinalPetr4VolumeBarra := volumePetr4AcimaMedia and barraPetr4AcimaATR;
+  volumePetr3AcimaMedia := volumePetr3 >= (mediaVolumePetr3 * FatorVolume);
+  barraPetr3AcimaATR := tamanhoBarraPetr3 >= (atrPetr3 * FatorBarraATR);
+  sinalPetr3VolumeBarra := volumePetr3AcimaMedia and barraPetr3AcimaATR;
+  volumeItubAcimaMedia := volumeItub >= (mediaVolumeItub * FatorVolume);
+  barraItubAcimaATR := tamanhoBarraItub >= (atrItub * FatorBarraATR);
+  sinalItubVolumeBarra := volumeItubAcimaMedia and barraItubAcimaATR;
+  volumeBbasAcimaMedia := volumeBbas >= (mediaVolumeBbas * FatorVolume);
+  barraBbasAcimaATR := tamanhoBarraBbas >= (atrBbas * FatorBarraATR);
+  sinalBbasVolumeBarra := volumeBbasAcimaMedia and barraBbasAcimaATR;
+  volumeBbdcAcimaMedia := volumeBbdc >= (mediaVolumeBbdc * FatorVolume);
+  barraBbdcAcimaATR := tamanhoBarraBbdc >= (atrBbdc * FatorBarraATR);
+  sinalBbdcVolumeBarra := volumeBbdcAcimaMedia and barraBbdcAcimaATR;
+  volumeBpacAcimaMedia := volumeBpac >= (mediaVolumeBpac * FatorVolume);
+  barraBpacAcimaATR := tamanhoBarraBpac >= (atrBpac * FatorBarraATR);
+  sinalBpacVolumeBarra := volumeBpacAcimaMedia and barraBpacAcimaATR;
+  volumeSanbAcimaMedia := volumeSanb >= (mediaVolumeSanb * FatorVolume);
+  barraSanbAcimaATR := tamanhoBarraSanb >= (atrSanb * FatorBarraATR);
+  sinalSanbVolumeBarra := volumeSanbAcimaMedia and barraSanbAcimaATR;
+  volumeWegeAcimaMedia := volumeWege >= (mediaVolumeWege * FatorVolume);
+  barraWegeAcimaATR := tamanhoBarraWege >= (atrWege * FatorBarraATR);
+  sinalWegeVolumeBarra := volumeWegeAcimaMedia and barraWegeAcimaATR;
+  volumeEmbrAcimaMedia := volumeEmbr >= (mediaVolumeEmbr * FatorVolume);
+  barraEmbrAcimaATR := tamanhoBarraEmbr >= (atrEmbr * FatorBarraATR);
+  sinalEmbrVolumeBarra := volumeEmbrAcimaMedia and barraEmbrAcimaATR;
+  idMineracaoCompra := sinalVolumeBarra and
+                       sinalGgbrVolumeBarra and
+                       sinalCsnaVolumeBarra and
+                       sinalUsimVolumeBarra and
+                       (VALE3.Close > VALE3.Open) and
+                       (GGBR4.Close > GGBR4.Open) and
+                       (CSNA3.Close > CSNA3.Open) and
+                       (USIM5.Close > USIM5.Open);
+  idMineracaoVenda := sinalVolumeBarra and
+                      sinalGgbrVolumeBarra and
+                      sinalCsnaVolumeBarra and
+                      sinalUsimVolumeBarra and
+                      (VALE3.Close < VALE3.Open) and
+                      (GGBR4.Close < GGBR4.Open) and
+                      (CSNA3.Close < CSNA3.Open) and
+                      (USIM5.Close < USIM5.Open);
+  idPetroleoCompra := sinalPetr4VolumeBarra and
+                      sinalPetr3VolumeBarra and
+                      (PETR4.Close > PETR4.Open) and
+                      (PETR3.Close > PETR3.Open);
+  idPetroleoVenda := sinalPetr4VolumeBarra and
+                     sinalPetr3VolumeBarra and
+                     (PETR4.Close < PETR4.Open) and
+                     (PETR3.Close < PETR3.Open);
+  idBancosCompra := sinalItubVolumeBarra and
+                    sinalBbasVolumeBarra and
+                    sinalBbdcVolumeBarra and
+                    sinalBpacVolumeBarra and
+                    sinalSanbVolumeBarra and
+                    (ITUB4.Close > ITUB4.Open) and
+                    (BBAS3.Close > BBAS3.Open) and
+                    (BBDC4.Close > BBDC4.Open) and
+                    (BPAC11.Close > BPAC11.Open) and
+                    (SANB11.Close > SANB11.Open);
+  idBancosVenda := sinalItubVolumeBarra and
+                   sinalBbasVolumeBarra and
+                   sinalBbdcVolumeBarra and
+                   sinalBpacVolumeBarra and
+                   sinalSanbVolumeBarra and
+                   (ITUB4.Close < ITUB4.Open) and
+                   (BBAS3.Close < BBAS3.Open) and
+                   (BBDC4.Close < BBDC4.Open) and
+                   (BPAC11.Close < BPAC11.Open) and
+                   (SANB11.Close < SANB11.Open);
+  idIndustriaCompra := sinalWegeVolumeBarra and
+                       sinalEmbrVolumeBarra and
+                       (WEGE3.Close > WEGE3.Open) and
+                       (EMBR3.Close > EMBR3.Open);
+  idIndustriaVenda := sinalWegeVolumeBarra and
+                      sinalEmbrVolumeBarra and
+                      (WEGE3.Close < WEGE3.Open) and
+                      (EMBR3.Close < EMBR3.Open);
+
+  Plot(volumeVale);
+  Plot2(mediaVolumeVale);
+  Plot3(atrVale);
+  Plot4(vwapVale);
+
+  if sinalVolumeBarra then
+  begin
+    if VALE3.Close >= VALE3.Open then
+      PaintBar(clGreen)
+    else
+      PaintBar(clRed);
+  end;
+end;
