@@ -1,0 +1,113 @@
+input
+  HorarioInicio(945);
+  PeriodoMediaVolume(10);
+  GainPontos(400);
+  LossPontos(400);
+  HabilitaSegunda(true);
+  HabilitaTerca(true);
+  HabilitaQuarta(true);
+  HabilitaQuinta(true);
+  HabilitaSexta(true);
+
+var
+  minimaDia            : Float;
+  maximaDia            : Float;
+  minimaAnteriorDia    : Float;
+  maximaAnteriorDia    : Float;
+  volumeAtual          : Float;
+  mediaVolume          : Float;
+  candleNegativo1      : Boolean;
+  candleNegativo2      : Boolean;
+  candleNegativo3      : Boolean;
+  candlePositivo1      : Boolean;
+  candlePositivo2      : Boolean;
+  candlePositivo3      : Boolean;
+  renovaMinimaDia      : Boolean;
+  renovaMaximaDia      : Boolean;
+  podeAnalisar         : Boolean;
+  diaSemana            : Integer;
+  diaHabilitado        : Boolean;
+  sinalVenda           : Boolean;
+  sinalCompra          : Boolean;
+  precoAlvo            : Float;
+  precoStop            : Float;
+
+begin
+  if Date <> Date[1] then
+  begin
+    minimaDia := Low;
+    maximaDia := High;
+  end;
+
+  podeAnalisar := Time >= HorarioInicio;
+  diaSemana := DayOfWeek(Date);
+  diaHabilitado := ((diaSemana = 1) and HabilitaSegunda) or
+                   ((diaSemana = 2) and HabilitaTerca) or
+                   ((diaSemana = 3) and HabilitaQuarta) or
+                   ((diaSemana = 4) and HabilitaQuinta) or
+                   ((diaSemana = 5) and HabilitaSexta);
+
+  minimaAnteriorDia := minimaDia;
+  maximaAnteriorDia := maximaDia;
+  volumeAtual := Volume;
+  mediaVolume := Media(PeriodoMediaVolume, Volume);
+
+  plotn(1,volumeAtual);
+  SetPlotType(1, 2) ;
+  PlotN(2, mediaVolume);
+
+  if Low < minimaDia then
+    minimaDia := Low;
+
+  if High > maximaDia then
+    maximaDia := High;
+
+  if podeAnalisar and diaHabilitado then
+  begin
+    candleNegativo1 := Close[2] < Open[2];
+    candleNegativo2 := Close[1] < Open[1];
+    candleNegativo3 := Close < Open;
+
+    candlePositivo1 := Close[2] > Open[2];
+    candlePositivo2 := Close[1] > Open[1];
+    candlePositivo3 := Close > Open;
+
+    renovaMinimaDia := Low < minimaAnteriorDia;
+    renovaMaximaDia := High > maximaAnteriorDia;
+
+    sinalVenda := candleNegativo1 and candleNegativo2 and candleNegativo3 and renovaMinimaDia and (volumeAtual > mediaVolume);
+    sinalCompra := candlePositivo1 and candlePositivo2 and candlePositivo3 and renovaMaximaDia and (volumeAtual > mediaVolume);
+
+    if sinalVenda then
+      PaintBar(clRed);
+
+    if sinalCompra then
+      PaintBar(clGreen);
+
+    if HasPosition = false then
+    begin
+      if sinalVenda then
+        SellShortAtMarket
+      else if sinalCompra then
+        BuyAtMarket;
+    end;
+  end;
+
+  if IsBought then
+  begin
+    precoAlvo := BuyPrice + GainPontos;
+    precoStop := BuyPrice - LossPontos;
+
+    SellToCoverLimit(precoAlvo);
+    SellToCoverStop(precoStop, precoStop-200);
+  end;
+
+  if IsSold then
+  begin
+    precoAlvo := SellPrice - GainPontos;
+    precoStop := SellPrice + LossPontos;
+
+    BuyToCoverLimit(precoAlvo);
+    BuyToCoverStop(precoStop, precoStop+200);
+  end;
+end;

@@ -1,0 +1,75 @@
+input
+  PeriodoMediaPonderada(20);
+  DistanciaMinimaColoracao(350);
+  AlvoPontos(130);
+  StopPontos(400);
+  HabilitaSegunda(true);
+  HabilitaTerca(true);
+  HabilitaQuarta(true);
+  HabilitaQuinta(true);
+  HabilitaSexta(true);
+
+var
+  mediaPonderada     : Float;
+  distanciaDaMedia   : Float;
+  candleNegativo     : Boolean;
+  candlePositivo     : Boolean;
+  abaixoDaMedia      : Boolean;
+  acimaDaMedia       : Boolean;
+  sinalVenda         : Boolean;
+  sinalCompra        : Boolean;
+  precoAlvo          : Float;
+  precoStop          : Float;
+  diaSemana          : Integer;
+  diaHabilitado      : Boolean;
+
+begin
+  mediaPonderada := VWMA(PeriodoMediaPonderada);
+  distanciaDaMedia := Abs(Close - mediaPonderada);
+  candleNegativo := Close < Open;
+  candlePositivo := Close > Open;
+  abaixoDaMedia := Close < mediaPonderada;
+  acimaDaMedia := Close > mediaPonderada;
+  diaSemana := DayOfWeek(Date);
+  diaHabilitado := ((diaSemana = 1) and HabilitaSegunda) or
+                   ((diaSemana = 2) and HabilitaTerca) or
+                   ((diaSemana = 3) and HabilitaQuarta) or
+                   ((diaSemana = 4) and HabilitaQuinta) or
+                   ((diaSemana = 5) and HabilitaSexta);
+  sinalVenda := candleNegativo and abaixoDaMedia and (distanciaDaMedia >= DistanciaMinimaColoracao) and diaHabilitado;
+  sinalCompra := candlePositivo and acimaDaMedia and (distanciaDaMedia >= DistanciaMinimaColoracao) and diaHabilitado;
+
+  Plotn(1,mediaPonderada);
+  SetPlotColor(1, clwhite);
+
+  if sinalVenda then
+    PaintBar(clRed)
+  else if sinalCompra then
+    PaintBar(clGreen);
+
+  if HasPosition = false then
+  begin
+    if sinalVenda then
+      SellShortAtMarket
+    else if sinalCompra then
+      BuyAtMarket;
+  end;
+
+  if IsBought then
+  begin
+    precoAlvo := BuyPrice + AlvoPontos;
+    precoStop := BuyPrice - StopPontos;
+
+    SellToCoverLimit(precoAlvo);
+    SellToCoverStop(precoStop, precoStop-200);
+  end;
+
+  if IsSold then
+  begin
+    precoAlvo := SellPrice - AlvoPontos;
+    precoStop := SellPrice + StopPontos;
+
+    BuyToCoverLimit(precoAlvo);
+    BuyToCoverStop(precoStop, precoStop+200);
+  end;
+end;
